@@ -19,22 +19,20 @@
 #include "msm_vidc_debug.h"
 #include "vidc_hfi_api.h"
 
+int msm_vidc_debug = 0;
+EXPORT_SYMBOL(msm_vidc_debug);
+
+int msm_vidc_debug_out = 0;
+EXPORT_SYMBOL(msm_vidc_debug_out);
+
 /* 0x18 = HFI_DEBUG_MSG_FATAL | HFI_DEBUG_MSG_ERROR */
-int msm_vidc_fw_debug = 0x18;
+int msm_vidc_fw_debug = 0;
+int msm_vidc_fw_debug_mode = 0;
 int msm_vidc_fw_low_power_mode = 1;
 bool msm_vidc_fw_coverage = !true;
 bool msm_vidc_thermal_mitigation_disabled = !true;
 int msm_vidc_clock_voting = !1;
 bool msm_vidc_syscache_disable = !true;
-
-#ifdef CONFIG_DEBUG_KERNEL
-int msm_vidc_debug = VIDC_ERR | VIDC_WARN | VIDC_FW;
-EXPORT_SYMBOL(msm_vidc_debug);
-
-int msm_vidc_debug_out = VIDC_OUT_PRINTK;
-EXPORT_SYMBOL(msm_vidc_debug_out);
-
-int msm_vidc_fw_debug_mode = 1;
 
 #define MAX_DBG_BUF_SIZE 4096
 
