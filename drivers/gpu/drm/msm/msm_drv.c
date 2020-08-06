@@ -90,6 +90,13 @@ static void msm_fb_output_poll_changed(struct drm_device *dev)
 		drm_fb_helper_hotplug_event(priv->fbdev);
 }
 
+static void msm_drm_display_thread_priority_worker(struct kthread_work *work)
+{
+	struct task_struct *task = current->group_leader;
+
+	sched_set_fifo(task);
+}
+
 /**
  * msm_atomic_helper_check - validate state object
  * @dev: DRM device
