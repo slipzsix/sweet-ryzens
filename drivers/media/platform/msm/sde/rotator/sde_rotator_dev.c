@@ -1373,8 +1373,6 @@ int sde_rotator_inline_release(void *handle)
 EXPORT_SYMBOL(sde_rotator_inline_release);
 
 /*
- * sde_rotator_inline_get_dst_pixfmt - determine output pixel format
- * @pdev: Pointer to platform device
  * @src_pixfmt: input pixel format
  * @dst_pixfmt: Pointer to output pixel format (output)
  * return: 0 if success; error code otherwise
