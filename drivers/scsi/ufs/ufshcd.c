@@ -6481,9 +6481,6 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 			/* Mark completed command as NULL in LRB */
 			lrbp->cmd = NULL;
 			hba->ufs_stats.clk_rel.ctx = XFR_REQ_COMPL;
-			if (cmd->request) {
-				ufshcd_pm_qos_put(hba);
-			}
 
 			req = cmd->request;
 			if (req) {
@@ -6559,9 +6556,6 @@ void ufshcd_abort_outstanding_transfer_requests(struct ufs_hba *hba, int result)
 			update_req_stats(hba, lrbp);
 			/* Mark completed command as NULL in LRB */
 			lrbp->cmd = NULL;
-			if (cmd->request) {
-				ufshcd_pm_qos_put(hba);
-			}
 			clear_bit_unlock(index, &hba->lrb_in_use);
 			ufshcd_release_all(hba);
 
