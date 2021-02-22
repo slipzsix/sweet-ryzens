@@ -3758,7 +3758,11 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 
 	err = ufshcd_get_read_lock(hba, cmd->device->lun);
 	if (unlikely(err < 0)) {
-		if (err == -EPERM || err == -EAGAIN) {
+		if (err == -EPERM) {
+			err = SCSI_MLQUEUE_HOST_BUSY;
+			goto out_pm_qos;
+		}
+		if (err == -EAGAIN) {
 			err = SCSI_MLQUEUE_HOST_BUSY;
 			goto out_pm_qos;
 		}
@@ -3914,7 +3918,14 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 		ufshcd_release_all(hba);
 		dev_err(hba->dev, "%s: failed sending command, %d\n",
 							__func__, err);
-		err = DID_ERROR;
+		if (err == -EINVAL) {
+			set_host_byte(cmd, DID_ERROR);
+			if (has_read_lock)
+				ufshcd_put_read_lock(hba);
+			cmd->scsi_done(cmd);
+			err = 0;
+			goto out_pm_qos;
+		}
 		goto out;
 	}
 
@@ -6481,6 +6492,9 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 			/* Mark completed command as NULL in LRB */
 			lrbp->cmd = NULL;
 			hba->ufs_stats.clk_rel.ctx = XFR_REQ_COMPL;
+			if (cmd->request) {
+				ufshcd_pm_qos_put(hba);
+			}
 
 			req = cmd->request;
 			if (req) {
@@ -6556,6 +6570,14 @@ void ufshcd_abort_outstanding_transfer_requests(struct ufs_hba *hba, int result)
 			update_req_stats(hba, lrbp);
 			/* Mark completed command as NULL in LRB */
 			lrbp->cmd = NULL;
+			if (cmd->request) {
+				/*
+				 * As we are accessing the "request" structure,
+				 * this must be called before calling
+				 * ->scsi_done() callback.
+				 */
+				ufshcd_pm_qos_put(hba);
+			}
 			clear_bit_unlock(index, &hba->lrb_in_use);
 			ufshcd_release_all(hba);
 
