@@ -2248,30 +2248,10 @@ long _do_fork(struct kernel_clone_args *args)
 	int trace = 0;
 	long nr;
 
+	/* Boost DDR bus to the max for 50 ms when userspace launches an app */
 	if (task_is_zygote(current)) {
-#ifdef CONFIG_KPROFILES
-		/*
-	 	 * Boost DDR bus and CPU to the max when userspace 
-	 	 * launches an app according to set kernel profile.
-	 	 */
-		switch (kp_active_mode()) {
-		case 0:
-		case 2:
-			cpu_input_boost_kick_max(50);
-			devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 50);
-			break;
-		case 3:
-			cpu_input_boost_kick_max(75);
-			devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 75);
-			break;
-		default:
-			break;
-		}
-#else
-		/* Boost DDR bus to the max for 50 ms when userspace launches an app */
 		cpu_input_boost_kick_max(50);
 		devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 50);
-#endif
 	}
 
 	/*
