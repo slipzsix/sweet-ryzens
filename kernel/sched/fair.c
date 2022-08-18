@@ -4624,6 +4624,9 @@ static void
 dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
 	int update_flags;
+	bool detach = entity_is_task(se) &&
+		      task_on_rq_migrating(task_of(se));
+
 	/*
 	 * Update run-time statistics of the 'current'.
 	 */
@@ -4643,6 +4646,8 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		update_flags |= SKIP_CPUFREQ;
 
 	update_load_avg(se, update_flags);
+	if (detach)
+		detach_entity_load_avg(cfs_rq, se);
 	dequeue_entity_load_avg(cfs_rq, se);
 
 	update_stats_dequeue(cfs_rq, se, flags);
@@ -8723,14 +8728,16 @@ static void migrate_task_rq_fair(struct task_struct *p)
 		se->vruntime -= u64_u32_load(cfs_rq->min_vruntime);
 	}
 
-	/*
-	 * We are supposed to update the task to "current" time, then its up to date
-	 * and ready to go to new CPU/cfs_rq. But we have difficulty in getting
-	 * what current time is, so simply throw away the out-of-date time. This
-	 * will result in the wakee task is less decayed, but giving the wakee more
-	 * load sounds not bad.
-	 */
-	remove_entity_load_avg(&p->se);
+	if (!task_on_rq_migrating(p)) {
+		/*
+		 * We are supposed to update the task to "current" time, then its up to date
+		 * and ready to go to new CPU/cfs_rq. But we have difficulty in getting
+		 * what current time is, so simply throw away the out-of-date time. This
+		 * will result in the wakee task is less decayed, but giving the wakee more
+		 * load sounds not bad.
+		 */
+		remove_entity_load_avg(&p->se);
+	}
 
 	/* Tell new CPU we are migrated */
 	p->se.avg.last_update_time = 0;
