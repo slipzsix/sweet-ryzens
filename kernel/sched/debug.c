@@ -504,6 +504,19 @@ static char *task_group_path(struct task_group *tg)
 }
 #endif
 
+/*
+ * cfs_rq_of() is private to fair.c, so provide the equivalent for the
+ * (task) entities printed here.
+ */
+static inline struct cfs_rq *task_cfs_rq_for_debug(struct task_struct *p)
+{
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	return p->se.cfs_rq;
+#else
+	return &task_rq(p)->cfs;
+#endif
+}
+
 static void
 print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 {
@@ -512,9 +525,13 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 	else
 		SEQ_printf(m, " %c", task_state_to_char(p));
 
-	SEQ_printf(m, "%15s %5d %9Ld.%06ld %9Ld %5d ",
+	SEQ_printf(m, "%15s %5d %9Ld.%06ld %c %9Ld.%06ld %9Ld.%06ld %9Ld.%06ld %9Ld %5d ",
 		p->comm, task_pid_nr(p),
 		SPLIT_NS(p->se.vruntime),
+		entity_eligible(task_cfs_rq_for_debug(p), &p->se) ? 'E' : 'N',
+		SPLIT_NS(p->se.deadline),
+		SPLIT_NS(p->se.slice),
+		SPLIT_NS(p->se.sum_exec_runtime),
 		(long long)(p->nvcsw + p->nivcsw),
 		p->prio);
 
