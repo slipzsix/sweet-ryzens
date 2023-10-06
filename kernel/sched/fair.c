@@ -3154,6 +3154,7 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		 */
 		deadline = div_s64(deadline * old_weight, weight);
 		se->deadline = se->vruntime + deadline;
+		min_deadline_cb_propagate(&se->run_node, NULL);
 	}
 
 	if (se->on_rq) {
