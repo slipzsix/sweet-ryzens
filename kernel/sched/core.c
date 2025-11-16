@@ -4910,12 +4910,14 @@ static bool task_is_unity_game(struct task_struct *p)
 	struct task_struct *t;
 	bool ret = false;
 
-	/* Filter for Android user applications (i.e., positive adj) */
+    /* Filter for Android user applications (i.e., positive adj) */
 	if (p->signal->oom_score_adj >= 0) {
 		rcu_read_lock();
 		for_each_thread(p, t) {
-			/* Check for a UnityMain thread in the thread group */
-			if (!strcmp(t->comm, "UnityMain") || !strcmp(t->comm, "UnityGfxDeviceW")) {
+			/* Check for Unity engine threads (Main, Vulkan, & OpenGL ES) */
+			if (!strcmp(t->comm, "UnityMain") || 
+			    !strcmp(t->comm, "UnityGfxDeviceW") || 
+			    !strncmp(t->comm, "UnityGfxDevice", 14)) {
 				ret = true;
 				break;
 			}
