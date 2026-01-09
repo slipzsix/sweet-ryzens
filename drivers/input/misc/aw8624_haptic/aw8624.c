@@ -621,7 +621,6 @@ static int aw8624_haptic_stop_delay(struct aw8624 *aw8624)
 
 static int aw8624_haptic_stop(struct aw8624 *aw8624)
 {
-
 	aw8624_haptic_play_go(aw8624, false);
 	aw8624_haptic_stop_delay(aw8624);
 	aw8624_haptic_play_mode(aw8624, AW8624_HAPTIC_STANDBY_MODE);
@@ -675,9 +674,12 @@ static unsigned char aw8624_haptic_set_level(struct aw8624 *aw8624, int gain)
 {
 	int val = 80;
 
-	val = aw8624->ulevel * gain / 128;
-	if (val > 255)
-		val = 255;
+    val = aw8624->ulevel * gain / 128;
+    if (val > 255) {
+        val = 255;
+    }
+
+    aw8624->gain = val & 0xFF;
 
 	return val;
 }
@@ -685,13 +687,17 @@ static unsigned char aw8624_haptic_set_level(struct aw8624 *aw8624, int gain)
 static int aw8624_haptic_set_gain(struct aw8624 *aw8624, unsigned char gain)
 {
 	unsigned char comp_gain = 0;
-	if (aw8624->ram_vbat_comp == AW8624_HAPTIC_RAM_VBAT_COMP_ENABLE)
+	unsigned char max_gain = 0;
+
+	if (aw8624->ram_vbat_comp == AW8624_HAPTIC_RAM_VBAT_COMP_ENABLE &&
+			aw8624->info.gain_flag != 1)
 	{
 		aw8624_haptic_get_vbat(aw8624);
 
 		comp_gain = gain * AW8624_VBAT_REFER / aw8624->vbat;
-		if (comp_gain > (128 * AW8624_VBAT_REFER / AW8624_VBAT_MIN)) {
-			comp_gain = 128 * AW8624_VBAT_REFER / AW8624_VBAT_MIN;
+        max_gain = 128 * AW8624_VBAT_REFER / AW8624_VBAT_MIN;
+		if (comp_gain > max_gain) {
+			comp_gain = max_gain;
 		}
 		aw8624_i2c_write(aw8624, AW8624_REG_DATDBG, aw8624_haptic_set_level(aw8624, comp_gain));
 	} else {
@@ -1100,8 +1106,7 @@ static int aw8624_haptic_play_effect_seq(struct aw8624 *aw8624,
 			aw8624_haptic_effect_strength(aw8624);
 			aw8624_haptic_set_gain(aw8624, aw8624->level);
 			aw8624_haptic_start(aw8624);
-		}
-		if (aw8624->activate_mode ==
+		} else if (aw8624->activate_mode ==
 		    AW8624_HAPTIC_ACTIVATE_RAM_LOOP_MODE) {
 			aw8624_haptic_set_repeat_wav_seq(aw8624,
 							 (aw8624->info.
@@ -2159,7 +2164,6 @@ static void aw8624_vibrator_work_routine(struct work_struct *work)
 
 static int aw8624_vibrator_init(struct aw8624 *aw8624)
 {
-
 	hrtimer_init(&aw8624->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	aw8624->timer.function = aw8624_vibrator_timer_func;
 	INIT_WORK(&aw8624->vibrator_work, aw8624_vibrator_work_routine);
@@ -2277,9 +2281,6 @@ static irqreturn_t aw8624_irq(int irq, void *data)
 				mutex_unlock(&aw8624->rtp_lock);
 			}
 		}
-	}
-
-	if (reg_val & AW8624_BIT_SYSINT_FF_AFI) {
 	}
 
 	if (aw8624->play_mode != AW8624_HAPTIC_RTP_MODE
@@ -2673,6 +2674,8 @@ static int aw8624_haptics_upload_effect(struct input_dev *dev,
 
 		aw8624->effect_id = data[0];
 		play->vmax_mv = effect->u.periodic.magnitude;	/*vmax level */
+		if (aw8624->info.gain_flag == 1)
+			play->vmax_mv = AW8624_STRONG_MAGNITUDE;
 
 		if (aw8624->effect_id < 0 ||
 		    aw8624->effect_id > aw8624->info.effect_max) {
@@ -2772,13 +2775,15 @@ static void aw8624_haptics_set_gain_work_routine(struct work_struct *work)
 		aw8624->level = 0x1E;	/*30 */
 
 	if (aw8624->ram_vbat_comp == AW8624_HAPTIC_RAM_VBAT_COMP_ENABLE
-		&& aw8624->vbat)
+		&& aw8624->vbat && aw8624->info.gain_flag != 1)
 	{
 		comp_level = aw8624->level * AW8624_VBAT_REFER / aw8624->vbat;
 		if (comp_level > (128 * AW8624_VBAT_REFER / AW8624_VBAT_MIN)) {
 			comp_level = 128 * AW8624_VBAT_REFER / AW8624_VBAT_MIN;
 		}
 		aw8624_i2c_write(aw8624, AW8624_REG_DATDBG, aw8624_haptic_set_level(aw8624, comp_level));
+	} else {
+		aw8624_i2c_write(aw8624, AW8624_REG_DATDBG, aw8624_haptic_set_level(aw8624, aw8624->level));
 	}
 }
 
@@ -2878,7 +2883,6 @@ static int select_pin_ctl(struct aw8624 *aw8624, const char *name)
 		if (!strncmp(n, name, strlen(n))) {
 			rc = pinctrl_select_state(aw8624->aw8624_pinctrl,
 						  aw8624->pinctrl_state[i]);
-			if (rc)
 			goto exit;
 		}
 	}
@@ -3178,7 +3182,7 @@ static ssize_t aw8624_gain_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct aw8624 *aw8624 = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "0x%02x\n", aw8624->level);
+	return snprintf(buf, PAGE_SIZE, "0x%02x\n", aw8624->gain);
 }
 
 static ssize_t aw8624_gain_store(struct device *dev,
@@ -3204,7 +3208,7 @@ static ssize_t aw8624_ulevel_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct aw8624 *aw8624 = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "0x%02x\n", aw8624->gain);
+	return snprintf(buf, PAGE_SIZE, "%d\n", aw8624->ulevel);
 }
 
 static ssize_t aw8624_ulevel_store(struct device *dev,
@@ -3226,7 +3230,7 @@ static ssize_t aw8624_ulevel_store(struct device *dev,
 
 	mutex_lock(&aw8624->lock);
 	aw8624->ulevel = val;
-	aw8624_haptic_set_gain(aw8624, aw8624->gain);
+	aw8624_haptic_set_gain(aw8624, aw8624->level);
 	mutex_unlock(&aw8624->lock);
 	return count;
 }
@@ -3794,6 +3798,19 @@ static ssize_t aw8624_osc_cali_store(struct device *dev,
 	return count;
 }
 
+static ssize_t aw8624_osc_save_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct aw8624 *aw8624 = dev_get_drvdata(dev);
+	ssize_t len = 0;
+
+	len +=
+	    snprintf(buf + len, PAGE_SIZE - len, "0x%x\n",
+		     aw8624->lra_calib_data);
+
+	return len;
+}
+
 static ssize_t aw8624_osc_save_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t count)
@@ -3881,8 +3898,8 @@ static DEVICE_ATTR(index, S_IWUSR | S_IRUGO, aw8624_index_show,
 		   aw8624_index_store);
 static DEVICE_ATTR(gain, S_IWUSR | S_IRUGO, aw8624_gain_show,
 		   aw8624_gain_store);
-static DEVICE_ATTR(ulevel, 0644, aw8624_ulevel_show,
-		  aw8624_ulevel_store);
+static DEVICE_ATTR(ulevel, S_IWUSR | S_IRUGO, aw8624_ulevel_show,
+                   aw8624_ulevel_store);
 static DEVICE_ATTR(seq, S_IWUSR | S_IRUGO, aw8624_seq_show, aw8624_seq_store);
 static DEVICE_ATTR(loop, S_IWUSR | S_IRUGO, aw8624_loop_show,
 		   aw8624_loop_store);
@@ -3916,7 +3933,7 @@ static DEVICE_ATTR(osc_cali, S_IWUSR | S_IRUGO, aw8624_osc_cali_show,
 		   aw8624_osc_cali_store);
 static DEVICE_ATTR(f0_save, S_IWUSR | S_IRUGO, aw8624_f0_save_show,
 		   aw8624_f0_save_store);
-static DEVICE_ATTR(osc_save, S_IWUSR | S_IRUGO, aw8624_osc_cali_show,
+static DEVICE_ATTR(osc_save, S_IWUSR | S_IRUGO, aw8624_osc_save_show,
 		   aw8624_osc_save_store);
 
 static struct attribute *aw8624_vibrator_attributes[] = {
