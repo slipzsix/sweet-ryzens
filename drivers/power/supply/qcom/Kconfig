@@ -28,6 +28,13 @@ config QPNP_QG
 	  to determine the battery state-of-charge (SOC) and supports other
 	  battery management features.
 
+config QG_DEBUG
+	bool "QG debug support"
+	default n
+	help
+	  Say N here to disable Qualcomm Technologies, Inc. QGauge driver
+	  debugging features for production.
+
 config SMB1351_USB_CHARGER
 	tristate "smb1351 usb charger (with VBUS detection)"
 	depends on I2C
