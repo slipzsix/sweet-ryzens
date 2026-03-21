@@ -13,13 +13,18 @@
 #ifndef __QG_DEFS_H__
 #define __QG_DEFS_H__
 
-#define qg_dbg(chip, reason, fmt, ...)			\
-	do {							\
-		if (*chip->debug_mask & (reason))		\
-			pr_info(fmt, ##__VA_ARGS__);	\
-		else						\
-			pr_debug(fmt, ##__VA_ARGS__);	\
-	} while (0)
+#ifdef CONFIG_QG_DEBUG
+#define qg_dbg(chip, reason, fmt, ...) \
+    do { \
+        if (*chip->debug_mask & (reason)) \
+            pr_info(fmt, ##__VA_ARGS__); \
+        else \
+            pr_debug(fmt, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define qg_dbg(chip, reason, fmt, ...) \
+    do { } while (0)  // True no-op
+#endif
 
 #define is_between(left, right, value) \
 		(((left) >= (right) && (left) >= (value) \
