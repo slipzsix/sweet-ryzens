@@ -35,12 +35,15 @@
 		qcom,mdss-dsi-lane-1-state;
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
+		qcom,mdss-brightness-max-level = <2047>;
+		qcom,mdss-dsi-bl-default-level = <536>;
 		qcom,bl-update-flag = "delay_until_first_frame";
 		qcom,mdss-dsi-dma-trigger = "trigger_sw";
 		qcom,mdss-dsi-mdp-trigger = "none";
+		qcom,mdss-dsi-bl-dcs-type-ss-ea;
 		qcom,mdss-dsi-reset-sequence = <0 1>, <1 10>;
-		qcom,mdss-pan-physical-width-dimension = <69>;
-		qcom,mdss-pan-physical-height-dimension = <154>;
+		qcom,mdss-pan-physical-width-dimension = <695>;
+		qcom,mdss-pan-physical-height-dimension = <1546>;
 		qcom,mdss-dsi-tx-eot-append;
 		qcom,dispparam-enabled;
 		qcom,mdss-dsi-panel-hdr-enabled;
@@ -51,6 +54,7 @@
 		/* IRQF_ONESHOT | IRQF_TRIGGER_RISING */
 		qcom,esd-err-irq-gpio = <&tlmm 32 0x2001>;
 		/* hbm off param */
+		qcom,dispparam-f4-51-ctrl-flag;
 		qcom,mdss-dsi-panel-hbm-off-51-index = <1>;
 
 		/* DFPS */
@@ -59,10 +63,12 @@
 		qcom,dsi-supported-dfps-list = <120 60>;
 
 		qcom,mdss-dsi-panel-dc-threshold = <488>;
+		qcom,mdss-dsi-panel-k6-dc-flag;
 
 		/* AOD brightness setting */
 		mi,mdss-dsi-doze-hbm-brightness-value = <272>;
 		mi,mdss-dsi-doze-lbm-brightness-value = <22>;
+		qcom,mdss-dsi-oled-panel-video-mode;
 
 		qcom,mdss-dsi-display-timings {
 			timing@0{
@@ -126,7 +132,7 @@
 					39 01 00 00 00 00 02 F4 1F
 					39 01 00 00 00 00 03 F0 A5 A5
 					39 01 00 00 00 00 03 FC A5 A5
-					39 01 00 00 00 00 02 53 28
+					39 01 00 00 00 00 02 53 20
 					39 01 00 00 64 00 03 51 00 00
 					05 01 00 00 00 00 02 29 00];
 					qcom,mdss-dsi-off-command = [

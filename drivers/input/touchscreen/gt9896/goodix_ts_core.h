@@ -773,7 +773,7 @@ static inline u32 checksum_be32(u8 *data, u32 size)
 
 /* #define CONFIG_GOODIX_DEBUG */
 /* log macro */
-#define ts_info(fmt, arg...)	MI_TOUCH_LOGI(1, "[%s-INF][%s:%d] "fmt"", TAG, __func__, __LINE__, ##arg)
+#define ts_info(fmt, arg...)	do { } while (0)
 #define ts_err(fmt, arg...)		MI_TOUCH_LOGE(1, "[%s-ERR][%s:%d] "fmt"", TAG, __func__, __LINE__, ##arg)
 #define ts_notice(fmt, arg...)	MI_TOUCH_LOGN(1, "[%s-NOTICE][%s:%d] "fmt"", TAG, __func__, __LINE__, ##arg)
 
