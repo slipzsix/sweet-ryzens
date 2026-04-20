@@ -207,5 +207,8 @@ config DRM_SDE_RSC
 
 config DRM_SDE_XLOG_DEBUG
 	bool "Trigger a panic after the dumping work has completed when SDE error"
+
+config FENCE_DEBUG
+	bool "Print fence name to userspace"
 	depends on DRM_MSM
 	default n
