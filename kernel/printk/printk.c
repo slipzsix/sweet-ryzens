@@ -816,6 +816,12 @@ static ssize_t devkmsg_write(struct kiocb *iocb, struct iov_iter *from)
 		}
 	}
 
+	if ((strstr(line, "healthd")) || (strstr(line, "logd")) ||
+		 strstr(line, "dashd")) {
+		kfree(buf);
+		return len;
+	}
+
 	printk_emit(facility, level, NULL, 0, "%s", line);
 	return ret;
 }
@@ -1231,6 +1237,7 @@ static size_t print_time(u64 ts, char *buf)
 	if (!buf)
 		return snprintf(NULL, 0, "[%5lu.000000] ", (unsigned long)ts);
 
+	ts += get_total_sleep_time_nsec();
 	return sprintf(buf, "[%5lu.%06lu] ",
 		       (unsigned long)ts, rem_nsec / 1000);
 }
