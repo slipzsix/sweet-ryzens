@@ -182,30 +182,6 @@ void adreno_writereg64(struct adreno_device *adreno_dev,
 }
 
 /**
- * adreno_get_rptr() - Get the current ringbuffer read pointer
- * @rb: Pointer the ringbuffer to query
- *
- * Get the latest rptr
- */
-unsigned int adreno_get_rptr(struct adreno_ringbuffer *rb)
-{
-	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
-	unsigned int rptr = 0;
-
-	if (adreno_is_a3xx(adreno_dev))
-		adreno_readreg(adreno_dev, ADRENO_REG_CP_RB_RPTR,
-				&rptr);
-	else {
-		struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-
-		kgsl_sharedmem_readl(&device->scratch, &rptr,
-				SCRATCH_RPTR_OFFSET(rb->id));
-	}
-
-	return rptr;
-}
-
-/**
  * adreno_of_read_property() - Adreno read property
  * @node: Device node
  *

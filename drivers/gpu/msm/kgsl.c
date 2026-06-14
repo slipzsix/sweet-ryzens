@@ -255,13 +255,6 @@ static void kgsl_memfree_add(pid_t pid, pid_t ptname, uint64_t gpuaddr,
 	spin_unlock(&memfree_lock);
 }
 
-int kgsl_readtimestamp(struct kgsl_device *device, void *priv,
-		enum kgsl_timestamp_type type, unsigned int *timestamp)
-{
-	return device->ftbl->readtimestamp(device, priv, type, timestamp);
-}
-EXPORT_SYMBOL(kgsl_readtimestamp);
-
 /* Scheduled by kgsl_mem_entry_put_deferred() */
 static void _deferred_put(struct work_struct *work)
 {
@@ -818,18 +811,6 @@ static struct kgsl_device *kgsl_get_minor(int minor)
  * @context: Pointer to the context for the timestamp
  * @timestamp: The timestamp to compare
  */
-int kgsl_check_timestamp(struct kgsl_device *device,
-	struct kgsl_context *context, unsigned int timestamp)
-{
-	unsigned int ts_processed;
-
-	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED,
-		&ts_processed);
-
-	return (timestamp_cmp(ts_processed, timestamp) >= 0);
-}
-EXPORT_SYMBOL(kgsl_check_timestamp);
-
 static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 {
 	int status = -EINVAL;
