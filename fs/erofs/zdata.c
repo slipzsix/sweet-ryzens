@@ -5,11 +5,11 @@
  */
 #include "zdata.h"
 #include "compress.h"
-#include <linux/overflow.h>
 #include <linux/prefetch.h>
 #include <linux/overflow.h>
 #include <linux/cpuhotplug.h>
 #include <trace/events/erofs.h>
+#include <uapi/linux/sched/types.h>
 
 /*
  * since pclustersize is variable for big pcluster feature, introduce slab
@@ -248,16 +248,6 @@ void z_erofs_exit_zip_subsystem(void)
 	erofs_destroy_percpu_workers();
 	destroy_workqueue(z_erofs_workqueue);
 	z_erofs_destroy_pcluster_pool();
-}
-
-static void z_erofs_pcluster_init_always(struct z_erofs_pcluster *pcl)
-{
-	struct z_erofs_collection *cl = z_erofs_primarycollection(pcl);
-
-	atomic_set(&pcl->obj.refcount, 1);
-
-	DBG_BUGON(cl->nr_pages);
-	DBG_BUGON(cl->vcnt);
 }
 
 int __init z_erofs_init_zip_subsystem(void)
@@ -632,7 +622,7 @@ static int z_erofs_register_collection(struct z_erofs_collector *clt,
 	if (IS_ERR(pcl))
 		return PTR_ERR(pcl);
 
-	z_erofs_pcluster_init_always(pcl);
+	atomic_set(&pcl->obj.refcount, 1);
 	pcl->obj.index = map->m_pa >> PAGE_SHIFT;
 
 	pcl->length = (map->m_llen << Z_EROFS_PCLUSTER_LENGTH_BIT) |
