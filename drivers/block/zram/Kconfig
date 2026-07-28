@@ -72,6 +72,18 @@ config ZRAM_MEMORY_TRACKING
 
 	  See Documentation/blockdev/zram.txt for more information.
 
+config ZRAM_BACKEND_LZ4KDR
+	bool "lz4kdr compression support"
+	depends on ZRAM
+	default y
+	select LZ4KDR_COMPRESS
+	select LZ4KDR_DECOMPRESS
+	help
+	  LZ4KDR is a speed-tuned derivative of Huawei's LZ4KD (a
+	  zram-oriented LZ4 variant), wire-compatible with the original
+	  LZ4KD encoding but with a reworked encoder search loop. See
+	  include/linux/lz4kdr.h for the attribution and what changed.
+
 config ZRAM_DEFAULT_COMP_ALGORITHM
 	string "Default ZRAM algorithm"
 	default "lz4"
