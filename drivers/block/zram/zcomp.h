@@ -14,6 +14,8 @@ struct zcomp_strm {
 	/* compression/decompression buffer */
 	void *buffer;
 	struct crypto_comp *tfm;
+	/* hash table of the built-in lz4kdr backend, if selected */
+	void *lz4kdr_state;
 };
 
 /* dynamic per-device compression frontend */
