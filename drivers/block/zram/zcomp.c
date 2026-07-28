@@ -15,11 +15,17 @@
 #include <linux/sched.h>
 #include <linux/cpu.h>
 #include <linux/crypto.h>
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4KDR)
+#include <linux/lz4kdr.h>
+#endif
 
 #include "zcomp.h"
 
 static const char * const backends[] = {
 	"lz4",
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4KDR)
+	"lz4kdr",
+#endif
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
 	"lzo",
 #endif
@@ -42,8 +48,10 @@ static void zcomp_strm_free(struct zcomp_strm *zstrm)
 {
 	if (!IS_ERR_OR_NULL(zstrm->tfm))
 		crypto_free_comp(zstrm->tfm);
+	kfree(zstrm->lz4kdr_state);
 	free_pages((unsigned long)zstrm->buffer, 1);
 	zstrm->tfm = NULL;
+	zstrm->lz4kdr_state = NULL;
 	zstrm->buffer = NULL;
 }
 
@@ -53,13 +61,41 @@ static void zcomp_strm_free(struct zcomp_strm *zstrm)
  */
 static int zcomp_strm_init(struct zcomp_strm *zstrm, struct zcomp *comp)
 {
-	zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+	/*
+	 * comp->stream comes from alloc_percpu(), which does not zero the
+	 * per-cpu memory. zcomp_strm_free() runs on CPU hotplug and on the
+	 * error paths below, so make sure it never kfree()s garbage.
+	 */
+	zstrm->tfm = NULL;
+	zstrm->lz4kdr_state = NULL;
+
 	/*
 	 * allocate 2 pages. 1 for compressed data, plus 1 extra for the
 	 * case when compressed size is larger than the original one
 	 */
 	zstrm->buffer = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, 1);
-	if (IS_ERR_OR_NULL(zstrm->tfm) || !zstrm->buffer) {
+	if (!zstrm->buffer)
+		return -ENOMEM;
+
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4KDR)
+	/*
+	 * lz4kdr is not a crypto API algorithm; it is compiled into the
+	 * kernel as a library and driven directly. Its hash table must be
+	 * zeroed once before the first compression, hence kzalloc().
+	 */
+	if (!strcmp(comp->name, "lz4kdr")) {
+		zstrm->lz4kdr_state = kzalloc(lz4kdr_encode_state_bytes_min(),
+					      GFP_KERNEL);
+		if (!zstrm->lz4kdr_state) {
+			zcomp_strm_free(zstrm);
+			return -ENOMEM;
+		}
+		return 0;
+	}
+#endif
+
+	zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+	if (IS_ERR_OR_NULL(zstrm->tfm)) {
 		zcomp_strm_free(zstrm);
 		return -ENOMEM;
 	}
@@ -127,6 +163,23 @@ void zcomp_stream_put(struct zcomp *comp)
 int zcomp_compress(struct zcomp_strm *zstrm,
 		const void *src, unsigned int *dst_len)
 {
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4KDR)
+	if (unlikely(zstrm->lz4kdr_state)) {
+		int ret;
+
+		ret = lz4kdr_encode(zstrm->lz4kdr_state, src, zstrm->buffer,
+				    PAGE_SIZE, PAGE_SIZE * 2, 0);
+		if (ret < 0)
+			return ret;
+		/*
+		 * lz4kdr reports an incompressible page as 0. Tell zram
+		 * about a full page so it stores the page uncompressed.
+		 */
+		*dst_len = ret == 0 ? PAGE_SIZE : ret;
+		return 0;
+	}
+#endif
+
 	/*
 	 * Our dst memory (zstrm->buffer) is always `2 * PAGE_SIZE' sized
 	 * because sometimes we can endup having a bigger compressed data
@@ -152,6 +205,14 @@ int zcomp_decompress(struct zcomp_strm *zstrm,
 		const void *src, unsigned int src_len, void *dst)
 {
 	unsigned int dst_len = PAGE_SIZE;
+
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4KDR)
+	if (unlikely(zstrm->lz4kdr_state)) {
+		int ret = lz4kdr_decode(src, dst, src_len, PAGE_SIZE);
+
+		return ret > 0 ? 0 : -EINVAL;
+	}
+#endif
 
 	return crypto_comp_decompress(zstrm->tfm,
 			src, src_len,
