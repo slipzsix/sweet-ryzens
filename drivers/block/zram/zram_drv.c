@@ -1868,23 +1868,33 @@ static void zram_reset_device(struct zram *zram)
 }
 
 static ssize_t disksize_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
+        struct device_attribute *attr, const char *buf,
+        size_t len)
 {
-	u64 disksize;
-	struct zcomp *comp;
-	struct zram *zram = dev_to_zram(dev);
-	int err;
+    u64 disksize;
+    static bool zram_size_set_once;
+    struct zcomp *comp;
+    struct zram *zram = dev_to_zram(dev);
+    int err;
 
-	disksize = memparse(buf, NULL);
-	if (!disksize)
-		return -EINVAL;
+    if (!zram_size_set_once) {
+        disksize = PAGE_ALIGN((u64)SZ_1G * 4);
+        zram_size_set_once = true;
+        pr_info("Setting default zRAM size to %llu GB\n", disksize / 1073741824);
+    } else {
+        disksize = memparse(buf, NULL);
+        if (!disksize)
+            return -EINVAL;
 
-	down_write(&zram->init_lock);
-	if (init_done(zram)) {
-		pr_info("Cannot change disksize for initialized device\n");
-		err = -EBUSY;
-		goto out_unlock;
-	}
+        disksize = PAGE_ALIGN(disksize);
+    }
+
+    down_write(&zram->init_lock);
+    if (init_done(zram)) {
+        pr_info("Cannot change disksize for initialized device\n");
+        err = -EBUSY;
+        goto out_unlock;
+    }
 
 	disksize = PAGE_ALIGN(disksize);
 	if (!zram_meta_alloc(zram, disksize)) {
