@@ -3527,7 +3527,7 @@ out:
  * Maximum number of compaction retries wit a progress before OOM
  * killer is consider as the only way to move forward.
  */
-#define MAX_COMPACT_RETRIES 16
+#define MAX_COMPACT_RETRIES 12
 
 #ifdef CONFIG_COMPACTION
 /* Try memory compaction for high-order allocations before reclaim */
@@ -3803,7 +3803,7 @@ static int
 __perform_reclaim(gfp_t gfp_mask, unsigned int order,
 					const struct alloc_context *ac)
 {
-	struct reclaim_state reclaim_state;
+	struct reclaim_state reclaim_state = {};
 	int progress;
 	unsigned int noreclaim_flag;
 	unsigned long pflags;
