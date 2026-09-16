@@ -2208,13 +2208,13 @@ static int qg_get_ffc_iterm_for_chg(struct qpnp_qg *chip)
 		if (is_batt_vendor_nvt) {
 			ffc_terminal_current = FFC_CHG_TERM_NVT_CURRENT;
 			pr_debug("ffc_terminal_current nvt is 550\n", rc);
-		} else {
+		}else{
 			ffc_terminal_current = FFC_CHG_TERM_SWD_CURRENT;
 			pr_debug("ffc_terminal_current swd is 600\n", rc);
 		}
 #else
 		ffc_terminal_current = FFC_CHG_TERM_CURRENT;
-		pr_err("ffc_terminal_current other is 830\n", rc);
+		pr_debug("ffc_terminal_current other is 830\n", rc);
 #endif
 	}
 	return ffc_terminal_current;
