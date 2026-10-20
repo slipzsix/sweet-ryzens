@@ -25,6 +25,7 @@
 #include <linux/of_batterydata.h>
 #include <linux/ktime.h>
 #include <linux/gpio.h>
+#include <linux/module.h>
 #include "smb5-lib.h"
 #include "smb5-reg.h"
 #include "schgm-flash.h"
@@ -50,6 +51,9 @@
 	((typec_mode == POWER_SUPPLY_TYPEC_SOURCE_MEDIUM	\
 	|| typec_mode == POWER_SUPPLY_TYPEC_SOURCE_HIGH)	\
 	&& (!chg->typec_legacy || chg->typec_legacy_use_rp_icl))
+
+bool skip_thermal = false;
+module_param(skip_thermal, bool, 0644);
 
 static void update_sw_icl_max(struct smb_charger *chg, int pst);
 static int smblib_get_prop_typec_mode(struct smb_charger *chg);
@@ -740,6 +744,9 @@ int smblib_set_charge_param(struct smb_charger *chg,
 	if (!chg->cp_psy)
 		chg->cp_psy = power_supply_get_by_name("bq2597x-standalone");
 
+	if (!chg->cp_psy)
+		chg->cp_psy = power_supply_get_by_name("ln8000");
+
 	if (chg->cp_psy && param->reg == CHGR_FLOAT_VOLTAGE_CFG_REG) {
 		power_supply_get_property(chg->cp_psy, POWER_SUPPLY_PROP_CP_VBAT_CALIBRATE, &val);
 		if (val.intval >= -20000 && val.intval <= 20000) {
@@ -939,6 +946,15 @@ int smblib_set_fastcharge_mode(struct smb_charger *chg, bool enable)
 		enable = false;
 #endif
 
+	rc = power_supply_get_property(chg->usb_psy,
+				POWER_SUPPLY_PROP_PD_AUTHENTICATION, &pval);
+	if (rc < 0) {
+		smblib_err(chg, "Couldn't get pd authentic:%d\n", rc);
+		return rc;
+	}
+	if (!pval.intval)
+		enable = false;
+
 	/*if soc > 90 do not set fastcharge flag*/
 	rc = power_supply_get_property(chg->bms_psy,
 			POWER_SUPPLY_PROP_CAPACITY, &pval);
@@ -948,7 +964,9 @@ int smblib_set_fastcharge_mode(struct smb_charger *chg, bool enable)
 	}
 
 	if (chg->use_bq_pump)
-		fastcharge_soc_thr = 85;
+
+		fastcharge_soc_thr = 95;
+
 	else
 		fastcharge_soc_thr = 90;
 
@@ -983,6 +1001,7 @@ int smblib_set_fastcharge_mode(struct smb_charger *chg, bool enable)
 		/* ffc need clear 4.4V non_fcc_vfloat_voter first */
 		vote(chg->fv_votable, NON_FFC_VFLOAT_VOTER, false, 0);
 		set_ln8000_fv(chg);
+		vote(chg->fcc_votable, PD_UNVERIFED_VOTER, false, 0);
 		rc = power_supply_get_property(chg->bms_psy,
 				POWER_SUPPLY_PROP_FFC_CHG_TERMINATION_CURRENT, &pval);
 		if (rc < 0) {
@@ -3023,10 +3042,16 @@ static int smblib_therm_charging(struct smb_charger *chg)
 {
 	int thermal_icl_ua = 0;
 	int thermal_fcc_ua = 0;
+	int temp_level;
 	int rc;
 
 	if (chg->system_temp_level >= MAX_TEMP_LEVEL)
 		return 0;
+
+	if (skip_thermal) {
+		temp_level = chg->system_temp_level;
+		chg->system_temp_level = 0;
+	}
 
 	switch (chg->real_charger_type) {
 	case POWER_SUPPLY_TYPE_USB_HVDCP:
@@ -3161,6 +3186,10 @@ static int smblib_therm_charging(struct smb_charger *chg)
 				pr_err("Couldn't enable USB thermal ICL vote rc=%d\n",
 						rc);
 		}
+	}
+
+	if (skip_thermal) {
+		chg->system_temp_level = temp_level;
 	}
 
 	return rc;
@@ -6527,9 +6556,11 @@ static int check_reduce_fcc_condition(struct smb_charger *chg)
 
 	if (!chg->cp_psy) {
 		chg->cp_psy = power_supply_get_by_name("bq2597x-standalone");
-		if (!chg->cp_psy) {
+
+		if (!chg->cp_psy){
 			chg->cp_psy = power_supply_get_by_name("ln8000");
-			if (!chg->cp_psy) {
+			if (!chg->cp_psy){
+
 				pr_err("cp_psy not found\n");
 				return 0;
 			}
@@ -6911,8 +6942,8 @@ static bool qc3p5_vbus_timeout_check(struct smb_charger *chg,
 	return true;
 }
 
-#define	QC3P5_T_TA_DETECTION_TIMEOUT_PMIC_MS	200
-#define	QC3P5_T_TA_CAP_TIMEOUT_PMIC_MS			250
+#define	QC3P5_T_TA_DETECTION_TIMEOUT_PMIC_MS	1000
+#define	QC3P5_T_TA_CAP_TIMEOUT_PMIC_MS			1000
 #define	VBUS_5P5_V_UV							5500000
 #define	VBUS_6P4_V_UV							6400000
 #define	VBUS_6P65_V_UV							6650000
@@ -7186,6 +7217,9 @@ int smblib_get_quick_charge_type(struct smb_charger *chg)
 	if ((pval.intval == POWER_SUPPLY_HEALTH_COLD)
 			|| (pval.intval == POWER_SUPPLY_HEALTH_OVERHEAT))
 		return 0;
+
+	pr_info("real_charger_type:%d pd_verified:%d, qc_class_ab:%d\n",
+		chg->real_charger_type, chg->pd_verifed, chg->qc_class_ab);
 
 	/* davinic do not need to report this type */
 	if ((chg->real_charger_type == POWER_SUPPLY_TYPE_USB_PD)

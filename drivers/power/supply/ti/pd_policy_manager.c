@@ -32,7 +32,7 @@
 #define PD_SRC_PDO_TYPE_VARIABLE	2
 #define PD_SRC_PDO_TYPE_AUGMENTED	3
 
-#define BATT_MAX_CHG_VOLT		4400
+#define BATT_MAX_CHG_VOLT		4450
 #define BATT_FAST_CHG_CURR		6000
 #define	BUS_OVP_THRESHOLD		12000
 #define	BUS_OVP_ALARM_THRESHOLD		9500
@@ -44,7 +44,7 @@
 #define BAT_CURR_LOOP_LMT		BATT_FAST_CHG_CURR
 #define BUS_VOLT_LOOP_LMT		BUS_OVP_THRESHOLD
 
-#define PM_WORK_RUN_INTERVAL		100
+#define PM_WORK_RUN_INTERVAL		500
 
 enum {
 	PM_ALGO_RET_OK,
@@ -139,6 +139,9 @@ static int pd_get_batt_current_thermal_level(struct usbpd_pm *pdpm, int *level)
 	return rc;
 }
 
+
+/* get capacity from battery power supply property */
+
 static int pd_get_batt_capacity(struct usbpd_pm *pdpm, int *capacity)
 {
 	union power_supply_propval pval = {0,};
@@ -152,11 +155,14 @@ static int pd_get_batt_capacity(struct usbpd_pm *pdpm, int *capacity)
 	rc = power_supply_get_property(pdpm->sw_psy,
 				POWER_SUPPLY_PROP_CAPACITY, &pval);
 	if (rc < 0) {
-		pr_info("Couldn't get fastcharge mode:%d\n", rc);
+
+		pr_info("Couldn't get battery capacity:%d\n", rc);
 		return rc;
 	}
 
-	pr_err("pval.intval: %d\n", pval.intval);
+	pr_info("battery capacity is : %d\n", pval.intval);
+
+
 	*capacity = pval.intval;
 	return rc;
 }
@@ -196,7 +202,6 @@ static bool pd_disable_cp_by_jeita_status(struct usbpd_pm *pdpm)
 
 	batt_temp = pval.intval;
 	pr_debug("batt_temp: %d\n", batt_temp);
-
 	if (batt_temp >= JEITA_WARM_THR && !pdpm->jeita_triggered) {
 		pdpm->jeita_triggered = true;
 		return true;
@@ -337,38 +342,41 @@ static int usbpd_set_new_fcc_voter(struct usbpd_pm *pdpm)
 
 static void usbpd_check_cp_psy(struct usbpd_pm *pdpm)
 {
-	if (!pdpm->cp_psy) {
-		if (pm_config.cp_sec_enable)
-			pdpm->cp_psy = power_supply_get_by_name("bq2597x-master");
-		else
-			pdpm->cp_psy = power_supply_get_by_name("bq2597x-standalone");
-		if (!pdpm->cp_psy) {
-			pdpm->cp_psy = power_supply_get_by_name("ln8000");
-			if (!pdpm->cp_psy)
-				pr_err("cp_psy not found\n");
-		}
-	}
-}
 
-static void usbpd_check_ln8000_chg(struct usbpd_pm *pdpm)
-{
-	int rc;
-	union power_supply_propval val;
+    const char *cp_psy_names[] = {
+        "bq2597x-master",
+        "bq2597x-standalone",
+        "ln8000",
+        NULL
+    };
+    int retries = 3;
+    int i;
 
-	rc = power_supply_get_property(pdpm->cp_psy,
-				POWER_SUPPLY_PROP_MODEL_NAME, &val);
-	if (rc < 0) {
-		pr_err("Failed getting charger IC name, rc=%d\n", rc);
-		ln8000_is_valid = false;
-	}
+    if (pdpm->cp_psy) {
+        pr_info("cp_psy already set: %s\n", pdpm->cp_psy->desc->name);
+        return;
+    }
 
-	if (strcmp(val.strval, "ln8000") == 0) {
-		pr_info("Detected ln8000 IC charger\n");
-		ln8000_is_valid = true;
-	} else {
-		pr_info("Detected other IC charger\n");
-		ln8000_is_valid = false;
-	}
+    while (retries--) {
+        for (i = 0; cp_psy_names[i]; i++) {
+            pr_info("Searching for cp_psy: %s\n", cp_psy_names[i]);
+            pdpm->cp_psy = power_supply_get_by_name(cp_psy_names[i]);
+            if (pdpm->cp_psy) {
+                pr_info("Found cp_psy: %s\n", cp_psy_names[i]);
+                return;
+            }
+        }
+
+        if (!pdpm->cp_psy) {
+            pr_info("cp_psy not found, retrying... (%d retries left)\n", retries);
+            msleep(100);
+        }
+    }
+
+    if (!pdpm->cp_psy) {
+        pr_err("cp_psy not found after retries\n");
+    }
+
 }
 
 static void usbpd_check_cp_sec_psy(struct usbpd_pm *pdpm)
@@ -461,7 +469,7 @@ static void usbpd_pm_update_cp_status(struct usbpd_pm *pdpm)
 	ret = power_supply_get_property(pdpm->cp_psy,
 			POWER_SUPPLY_PROP_TI_DIE_TEMPERATURE, &val);
 	if (!ret)
-		pdpm->cp.die_temp = val.intval;
+		pdpm->cp.die_temp = val.intval / 10;
 
 	ret = power_supply_get_property(pdpm->cp_psy,
 			POWER_SUPPLY_PROP_TI_BATTERY_PRESENT, &val);
@@ -742,6 +750,7 @@ static void usbpd_pm_evaluate_src_caps(struct usbpd_pm *pdpm)
 	int ret;
 	int i;
 	union power_supply_propval pval = {0, };
+	int apdo_max = 0;
 
 	if (!pdpm->pd) {
 		pdpm->pd = smb_get_usbpd();
@@ -763,6 +772,13 @@ static void usbpd_pm_evaluate_src_caps(struct usbpd_pm *pdpm)
 	for (i = 0; i < PDO_MAX_NUM; i++) {
 		if (pdpm->pdo[i].type == PD_SRC_PDO_TYPE_AUGMENTED
 			&& pdpm->pdo[i].pps && pdpm->pdo[i].pos) {
+			if (pdpm->pdo[i].max_volt_mv > 11000)
+				pdpm->pdo[i].max_volt_mv = 11000;
+			if (apdo_max < ((pdpm->pdo[i].max_volt_mv/1000) * (pdpm->pdo[i].curr_ma/10) / 100)) {
+				apdo_max = (pdpm->pdo[i].max_volt_mv/1000) * (pdpm->pdo[i].curr_ma/10) / 100;
+			}
+			pr_err("%s max_volt:%d, curr_ma:%d, apdo_max:%d\n", __func__,
+							pdpm->pdo[i].max_volt_mv, pdpm->pdo[i].curr_ma, apdo_max);
 			if (pdpm->pdo[i].max_volt_mv >= pdpm->apdo_max_volt
 					&& pdpm->pdo[i].curr_ma >= pdpm->apdo_max_curr
 					&& pdpm->pdo[i].max_volt_mv <= APDO_MAX_VOLT) {
@@ -781,7 +797,10 @@ static void usbpd_pm_evaluate_src_caps(struct usbpd_pm *pdpm)
 				pdpm->apdo_max_curr);
 		if (pdpm->apdo_max_curr <= LOW_POWER_PPS_CURR_THR)
 			pdpm->apdo_max_curr = XIAOMI_LOW_POWER_PPS_CURR_MAX;
-		pval.intval = (pdpm->apdo_max_volt / 1000) * (pdpm->apdo_max_curr / 1000);
+		pval.intval = (pdpm->apdo_max_volt / 1000) * (pdpm->apdo_max_curr / 10) / 100;
+		if (pval.intval < apdo_max) {
+			pval.intval = apdo_max;
+		}
 		power_supply_set_property(pdpm->usb_psy,
 				POWER_SUPPLY_PROP_APDO_MAX, &pval);
 	} else {
@@ -994,8 +1013,8 @@ static int usbpd_pm_fc2_charge_algo(struct usbpd_pm *pdpm)
 	if (ln8000_is_valid)
 		pdpm->request_current = min(pdpm->apdo_max_curr, curr_ibus_limit);
 
-	if (pdpm->apdo_max_volt == PPS_VOL_MAX)
-		pdpm->apdo_max_volt = pdpm->apdo_max_volt - PPS_VOL_HYS;
+//	if (pdpm->apdo_max_volt == PPS_VOL_MAX)
+//		pdpm->apdo_max_volt = pdpm->apdo_max_volt - PPS_VOL_HYS;
 
 	if (pdpm->request_voltage > pdpm->apdo_max_volt)
 		pdpm->request_voltage = pdpm->apdo_max_volt;
@@ -1040,9 +1059,10 @@ static int usbpd_pm_sm(struct usbpd_pm *pdpm)
 	static bool stop_sw;
 	static bool recover;
 	int effective_fcc_val = 0;
-	int thermal_level = 0, capacity;
+	int thermal_level = 0; 
 	static int curr_fcc_lmt, curr_ibus_lmt, retry_count;
 	static int request_fail_count = 0;
+	int capacity = 0;
 
 	switch (pdpm->state) {
 	case PD_PM_STATE_ENTRY:
@@ -1058,6 +1078,7 @@ static int usbpd_pm_sm(struct usbpd_pm *pdpm)
 		if (ln8000_is_valid)
 			pd_get_batt_capacity(pdpm, &capacity);
 
+		pd_get_batt_capacity(pdpm, &capacity);
 		effective_fcc_val = usbpd_get_effective_fcc_val(pdpm);
 
 		if (effective_fcc_val > 0) {
@@ -1067,10 +1088,11 @@ static int usbpd_pm_sm(struct usbpd_pm *pdpm)
 		}
 
 		if (pdpm->cp.vbat_volt < pm_config.min_vbat_for_cp) {
-			pr_debug("batt_volt %d, waiting...\n", pdpm->cp.vbat_volt);
-		} else if ((pdpm->cp.vbat_volt > pm_config.bat_volt_lp_lmt - 50)
-			|| (capacity >= 89 && ln8000_is_valid)) {
-			pr_debug("batt_volt %d is too high for cp, charging with switch charger\n",
+
+			pr_info("batt_volt %d, waiting...\n", pdpm->cp.vbat_volt);
+		} else if (pdpm->cp.vbat_volt > pm_config.bat_volt_lp_lmt - 50 || capacity > 95) {
+			pr_info("batt_volt %d or capacity is too high for cp, charging with switch charger\n",
+
 					pdpm->cp.vbat_volt);
 			usbpd_pm_move_state(pdpm, PD_PM_STATE_FC2_EXIT);
 			if (pm_config.bat_volt_lp_lmt < BAT_VOLT_LOOP_LMT)
@@ -1341,9 +1363,12 @@ static void usbpd_pm_disconnect(struct usbpd_pm *pdpm)
 
 	cancel_delayed_work_sync(&pdpm->pm_work);
 
-	if (pdpm->fcc_votable)
+	if (pdpm->fcc_votable) {
 		vote(pdpm->fcc_votable, BQ_TAPER_FCC_VOTER,
 				false, 0);
+		vote(pdpm->fcc_votable, PD_UNVERIFED_VOTER,
+				false, 0);
+	}
 	pdpm->pps_supported = false;
 	pdpm->jeita_triggered = false;
 	pdpm->is_temp_out_fc2_range = false;
@@ -1388,8 +1413,19 @@ static void usbpd_pps_non_verified_contact(struct usbpd_pm *pdpm, bool connected
 
 	if (connected) {
 		usbpd_pm_evaluate_src_caps(pdpm);
-		if (pdpm->pps_supported)
+		if (pdpm->pps_supported){
+			if (!pdpm->fcc_votable)
+				pdpm->fcc_votable = find_votable("FCC");
+
+			if ((pdpm->apdo_max_volt / 1000) * (pdpm->apdo_max_curr / 1000) < 33) {
+				if (pdpm->fcc_votable)
+					vote(pdpm->fcc_votable, PD_UNVERIFED_VOTER, true, PD_UNVERIFED_CURRENT_LOW);
+			} else {
+				if (pdpm->fcc_votable)
+					vote(pdpm->fcc_votable, PD_UNVERIFED_VOTER, true, PD_UNVERIFED_CURRENT_HIGH);
+			}
 			schedule_delayed_work(&pdpm->pm_work, 5*HZ);
+		}
 	} else {
 		usbpd_pm_disconnect(pdpm);
 	}
@@ -1585,7 +1621,6 @@ static int usbpd_pm_probe(struct platform_device *pdev)
 	spin_lock_init(&pdpm->psy_change_lock);
 
 	usbpd_check_cp_psy(pdpm);
-	usbpd_check_ln8000_chg(pdpm);
 	usbpd_check_cp_sec_psy(pdpm);
 	usbpd_check_usb_psy(pdpm);
 
