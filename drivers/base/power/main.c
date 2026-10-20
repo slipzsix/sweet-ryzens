@@ -446,11 +446,13 @@ static void pm_dev_dbg(struct device *dev, pm_message_t state, const char *info)
 		", may wakeup" : "");
 }
 
-static void pm_dev_err(struct device *dev, pm_message_t state, const char *info,
-			int error)
+static void pm_dev_err(struct device *dev, pm_message_t state,
+		       const char *info, int error)
 {
-	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
-		dev_name(dev), pm_verb(state.event), info, error);
+	if (!strcmp(dev_name(dev), "alarmtimer"))
+		return;
+	printk(KERN_ERR "PM: Device %s failed to %s: error %d\n",
+		dev_name(dev), pm_verb(state.event), error);
 }
 
 static void dpm_show_time(ktime_t starttime, pm_message_t state, int error,
@@ -1861,7 +1863,7 @@ EXPORT_SYMBOL_GPL(dpm_suspend_start);
 
 void __suspend_report_result(const char *function, void *fn, int ret)
 {
-	if (ret)
+	if (ret && ret != -EBUSY)
 		printk(KERN_ERR "%s(): %pF returns %d\n", function, fn, ret);
 }
 EXPORT_SYMBOL_GPL(__suspend_report_result);
