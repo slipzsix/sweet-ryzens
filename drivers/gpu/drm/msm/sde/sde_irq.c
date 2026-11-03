@@ -14,12 +14,31 @@
 
 #include <linux/irqdomain.h>
 #include <linux/irq.h>
+#include <linux/interrupt.h>
 #include <linux/kthread.h>
 
 #include "sde_irq.h"
 #include "sde_core_irq.h"
 
 uint32_t g_sde_irq_status;
+
+/*
+ * SM7150 (SD732G): CPU0-5 = Silver, CPU6-7 = Gold.
+ * Mask CPU2-5: the IRQ normally lands on CPU2 (lowest online CPU in the
+ * mask) and falls back to CPU3..5, never to the gold cluster.
+ */
+#define SDE_IRQ_CPUS_MASK	0x3cUL
+
+static void sde_irq_pin(struct sde_kms *sde_kms)
+{
+	unsigned long bits = SDE_IRQ_CPUS_MASK;
+	int rc;
+
+	rc = irq_set_affinity(sde_kms->irq_num, to_cpumask(&bits));
+	if (rc)
+		pr_warn_ratelimited("failed to pin irq %d: %d\n",
+				sde_kms->irq_num, rc);
+}
 
 void sde_irq_update(struct msm_kms *msm_kms, bool enable)
 {
@@ -32,10 +51,17 @@ void sde_irq_update(struct msm_kms *msm_kms, bool enable)
 
 	sde_kms->irq_enabled = enable;
 
-	if (enable)
+	if (enable) {
+		/*
+		 * Non-boot CPUs are taken offline during suspend, which
+		 * migrates this interrupt away from CPU 2; re-pin it now
+		 * that all CPUs are back online.
+		 */
+		sde_irq_pin(sde_kms);
 		enable_irq(sde_kms->irq_num);
-	else
+	} else {
 		disable_irq(sde_kms->irq_num);
+	}
 }
 
 irqreturn_t sde_irq(struct msm_kms *kms)
@@ -110,6 +136,8 @@ void sde_irq_preinstall(struct msm_kms *kms)
 	/* disable irq until power event enables it */
 	if (!sde_kms->splash_data.num_splash_displays && !sde_kms->irq_enabled)
 		irq_set_status_flags(sde_kms->irq_num, IRQ_NOAUTOEN);
+
+	irq_set_status_flags(sde_kms->irq_num, IRQ_NO_BALANCING);
 }
 
 int sde_irq_postinstall(struct msm_kms *kms)
@@ -121,6 +149,8 @@ int sde_irq_postinstall(struct msm_kms *kms)
 		SDE_ERROR("invalid parameters\n");
 		return -EINVAL;
 	}
+
+    sde_irq_pin(sde_kms);
 
 	rc = sde_core_irq_postinstall(sde_kms);
 
