@@ -20,6 +20,7 @@
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/workqueue.h>
 #include <linux/dma-buf.h>
 #include <linux/pm_runtime.h>
@@ -812,6 +813,20 @@ static struct kgsl_device *kgsl_get_minor(int minor)
  * @context: Pointer to the context for the timestamp
  * @timestamp: The timestamp to compare
  */
+int kgsl_check_timestamp(struct kgsl_device *device,
+	struct kgsl_context *context, unsigned int timestamp)
+{
+	unsigned int ts_processed;
+
+	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED,
+		&ts_processed);
+
+	return (timestamp_cmp(ts_processed, timestamp) >= 0);
+}
+EXPORT_SYMBOL(kgsl_check_timestamp);
+
+static void kgsl_pin_irq(struct kgsl_device *device);
+
 static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 {
 	int status = -EINVAL;
@@ -839,6 +854,7 @@ static int kgsl_resume_device(struct kgsl_device *device, pm_message_t state)
 		return -EINVAL;
 
 	KGSL_PWR_WARN(device, "resume start\n");
+	kgsl_pin_irq(device);
 	mutex_lock(&device->mutex);
 	ret = device->ftbl->resume_device(device, state);
 	if (ret) {
@@ -4952,6 +4968,28 @@ static int _register_device(struct kgsl_device *device)
 	return 0;
 }
 
+/*
+ * SM7150 (SD732G): CPU0-5 = Silver (A55), CPU6-7 = Gold (A76).
+ * Mask CPU1-5: the GIC delivers to the lowest online CPU in the mask, so
+ * the IRQ normally lands on CPU1 and falls back to CPU2..5 if CPU1 is
+ * offline/isolated, never to the gold cluster.
+ * Must be called with the interrupt requested; safe while it is disabled.
+ */
+#define KGSL_IRQ_CPUS_MASK	0x3eUL
+
+static void kgsl_pin_irq(struct kgsl_device *device)
+{
+	unsigned int irq = device->pwrctrl.interrupt_num;
+	unsigned long bits = KGSL_IRQ_CPUS_MASK;
+	int ret;
+
+	irq_set_status_flags(irq, IRQ_NO_BALANCING);
+
+	ret = irq_set_affinity(irq, to_cpumask(&bits));
+	if (ret)
+		KGSL_DRV_WARN(device, "failed to pin irq %u: %d\n", irq, ret);
+}
+
 int kgsl_device_platform_probe(struct kgsl_device *device)
 {
 	int status = -EINVAL;
@@ -5044,6 +5082,7 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 			      device->pwrctrl.interrupt_num, status);
 		goto error_pwrctrl_close;
 	}
+	kgsl_pin_irq(device);
 	disable_irq(device->pwrctrl.interrupt_num);
 
 	KGSL_DRV_INFO(device,
