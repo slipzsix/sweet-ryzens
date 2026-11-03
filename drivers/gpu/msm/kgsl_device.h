@@ -724,16 +724,9 @@ static inline int kgsl_readtimestamp(struct kgsl_device *device, void *priv,
 	return device->ftbl->readtimestamp(device, priv, type, timestamp);
 }
 
-static inline int kgsl_check_timestamp(struct kgsl_device *device,
-	struct kgsl_context *context, unsigned int timestamp)
-{
-	unsigned int ts_processed;
-
-	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED,
-		&ts_processed);
-
-	return (timestamp_cmp(ts_processed, timestamp) >= 0);
-}
+int kgsl_check_timestamp(struct kgsl_device *device,
+			 struct kgsl_context *context,
+			 unsigned int timestamp);
 int kgsl_device_platform_probe(struct kgsl_device *device);
 
 void kgsl_device_platform_remove(struct kgsl_device *device);
