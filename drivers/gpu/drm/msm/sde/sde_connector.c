@@ -685,7 +685,7 @@ void sde_crtc_fod_ui_ready(struct dsi_display *display, int type, int value)
 		}
 
 	}
-	pr_info("sde_crtc_fod_ui_ready notify: %d\n", display->panel->fod_ui_ready);
+	pr_debug("sde_crtc_fod_ui_ready notify: %d\n", display->panel->fod_ui_ready);
 	sysfs_notify(&display->drm_conn->kdev->kobj, NULL, "fod_ui_ready");
 }
 
@@ -741,19 +741,19 @@ int sde_connector_update_hbm(struct sde_connector *c_conn)
 			if (dsi_display->drm_dev
 				&& ((dsi_display->drm_dev->doze_state == MSM_DRM_BLANK_LP1)	|| (dsi_display->drm_dev->doze_state == MSM_DRM_BLANK_LP2))) {
 				if (dsi_display->drm_dev->doze_brightness == DOZE_BRIGHTNESS_HBM) {
-					pr_info("hbm fod off doze hbm on\n");
+					pr_debug("hbm fod off doze hbm on\n");
 					dsi_display_write_panel(dsi_display, &dsi_display->panel->cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DOZE_HBM]);
 				} else if (dsi_display->drm_dev->doze_brightness == DOZE_BRIGHTNESS_LBM) {
-					pr_info("hbm fod off doze lbm on\n");
+					pr_debug("hbm fod off doze lbm on\n");
 					dsi_display_write_panel(dsi_display, &dsi_display->panel->cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DOZE_LBM]);
 				}
 				sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
 				dsi_display->panel->in_aod = true;
 				dsi_display->panel->skip_dimmingon = STATE_DIM_BLOCK;
 			} else {
-				pr_info("HBM fod off\n");
+				pr_debug("HBM fod off\n");
 				if (dsi_display->panel->f4_51_ctrl_flag) {
-					pr_info("f4_51 HBM fod off\n");
+					pr_debug("f4_51 HBM fod off\n");
 					hbm_cmds = dsi_display->panel->cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DISP_HBM_FOD_OFF].cmds;
 					if (hbm_cmds) {
 						((u8 *)hbm_cmds[1].msg.tx_buf)[1] = (dsi_display->panel->last_bl_lvl >> 8) & 0x07;
@@ -790,7 +790,7 @@ int sde_connector_update_hbm(struct sde_connector *c_conn)
 			SDE_ATRACE_BEGIN("set_hbm_on");
 			mutex_lock(&dsi_display->panel->panel_lock);
 			if (dsi_display->panel->bl_config.samsung_prepare_hbm_flag) {
-				pr_info("fod set dimming on\n");
+				pr_debug("fod set dimming on\n");
 				rc = dsi_display_write_panel(dsi_display, &dsi_display->panel->cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DISP_DIMMINGON]);
 
 				if (dsi_display->panel->last_bl_lvl >= dsi_display->panel->bl_config.bl_max_level - 1) {
@@ -815,11 +815,11 @@ int sde_connector_update_hbm(struct sde_connector *c_conn)
 				} else {
 					dim_backlight = dsi_display->panel->last_bl_lvl + dsi_display->panel->backlight_delta;
 				}
-				pr_info("backlight repeat:%d\n", dim_backlight);
+				pr_debug("backlight repeat:%d\n", dim_backlight);
 				rc = dsi_panel_set_backlight(dsi_display->panel, dim_backlight);
 			}
 
-			pr_info("HBM fod on\n");
+			pr_debug("HBM fod on\n");
 			dsi_display->panel->hbm_ntfy_skip_flag = 3;
 			sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
 			if (dsi_display->panel->elvss_dimming_check_enable) {
@@ -835,7 +835,7 @@ int sde_connector_update_hbm(struct sde_connector *c_conn)
 
 			if (dsi_display->drm_dev
 					&& ((dsi_display->drm_dev->doze_state == MSM_DRM_BLANK_LP1) || (dsi_display->drm_dev->doze_state == MSM_DRM_BLANK_LP2))) {
-				pr_info("aod to HBM\n");
+				pr_debug("aod to HBM\n");
 				if (dsi_display->panel->f4_51_ctrl_flag || dsi_display->panel->bl_config.xiaomi_f4_41_flag) {
 					sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_TX_COMPLETE);
 					dsi_display->panel->hbm_ntfy_skip_flag = 4;
@@ -883,7 +883,7 @@ void sde_connector_fod_notify(struct drm_connector *conn)
 
 	if (dsi_display->panel->hbm_ntfy_skip_flag) {
 		dsi_display->panel->hbm_ntfy_skip_flag--;
-		pr_info("%s: icon notify need skip hbm_ntfy_skip_flag[%d]", __func__, dsi_display->panel->hbm_ntfy_skip_flag);
+		pr_debug("%s: icon notify need skip hbm_ntfy_skip_flag[%d]", __func__, dsi_display->panel->hbm_ntfy_skip_flag);
 		return;
 	}
 
