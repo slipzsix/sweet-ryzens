@@ -110,10 +110,16 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_L
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (default: 2.8 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (2.8 msec constant when CONFIG_SCHED_BORE selects
+ *  SCHED_TUNABLESCALING_NONE)
+ *
+ * The 2.8 msec request completes just before a 3.33 msec (HZ=300) tick,
+ * so tasks reach their deadline before the tick arrives instead of
+ * running an extra tick.
  */
-unsigned int sysctl_sched_base_slice			= 1000000ULL;
-static unsigned int normalized_sysctl_sched_base_slice	= 1000000ULL;
+unsigned int sysctl_sched_base_slice			= 2800000ULL;
+static unsigned int normalized_sysctl_sched_base_slice	= 2800000ULL;
 
 /*
  * To enable/disable energy aware feature.
