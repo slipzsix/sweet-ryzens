@@ -4453,7 +4453,7 @@ static int _dsi_display_dyn_update_clks(struct dsi_display *display,
 			pr_err("wait4dynamic refresh failed for dsi:%d\n", i);
 			goto recover_pix_clk;
 		} else {
-			pr_info("dynamic refresh done on dsi: %s\n",
+			pr_debug("dynamic refresh done on dsi: %s\n",
 				i ? "slave" : "master");
 		}
 	}
@@ -4595,7 +4595,7 @@ static int dsi_display_dynamic_clk_configure_cmd(struct dsi_display *display,
 	}
 
 	if (clk_rate == display->cached_clk_rate) {
-		pr_info("%s: ignore duplicated DSI clk setting\n", __func__);
+		pr_debug("%s: ignore duplicated DSI clk setting\n", __func__);
 		return rc;
 	}
 
@@ -4603,7 +4603,7 @@ static int dsi_display_dynamic_clk_configure_cmd(struct dsi_display *display,
 
 	rc = dsi_display_update_dsi_bitrate(display, clk_rate);
 	if (!rc) {
-		pr_info("%s: bit clk is ready to be configured to '%d'\n",
+		pr_debug("%s: bit clk is ready to be configured to '%d'\n",
 				__func__, clk_rate);
 		atomic_set(&display->clkrate_change_pending, 1);
 	} else {
@@ -5226,7 +5226,7 @@ static int dsi_display_force_update_dsi_clk(struct dsi_display *display)
 	rc = dsi_display_link_clk_force_update_ctrl(display->dsi_clk_handle);
 
 	if (!rc) {
-		pr_info("dsi bit clk has been configured to %d\n",
+		pr_debug("dsi bit clk has been configured to %d\n",
 			display->cached_clk_rate);
 
 		atomic_set(&display->clkrate_change_pending, 0);
@@ -5293,7 +5293,7 @@ static ssize_t sysfs_dynamic_dsi_clk_write(struct device *dev,
 		return -ENOTSUPP;
 	}
 
-	pr_info("%s: bitrate param value: '%d'\n", __func__, clk_rate);
+	pr_debug("%s: bitrate param value: '%d'\n", __func__, clk_rate);
 
 	mutex_lock(&display->display_lock);
 	mutex_lock(&dsi_display_clk_mutex);
