@@ -299,7 +299,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 	switch (op) {
 	case DSI_CTRL_OP_POWER_STATE_CHANGE:
 		if (state->power_state == op_state) {
-			pr_err("[%d] No change in state, pwr_state=%d\n",
+			pr_debug("[%d] No change in state, pwr_state=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if (state->power_state == DSI_CTRL_POWER_VREG_ON) {
@@ -314,7 +314,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case DSI_CTRL_OP_CMD_ENGINE:
 		if (state->cmd_engine_state == op_state) {
-			pr_err("[%d] No change in state, cmd_state=%d\n",
+			pr_debug("[%d] No change in state, cmd_state=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if ((state->power_state != DSI_CTRL_POWER_VREG_ON) ||
@@ -329,7 +329,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case DSI_CTRL_OP_VID_ENGINE:
 		if (state->vid_engine_state == op_state) {
-			pr_err("[%d] No change in state, cmd_state=%d\n",
+			pr_debug("[%d] No change in state, cmd_state=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if ((state->power_state != DSI_CTRL_POWER_VREG_ON) ||
@@ -344,7 +344,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case DSI_CTRL_OP_HOST_ENGINE:
 		if (state->controller_state == op_state) {
-			pr_err("[%d] No change in state, ctrl_state=%d\n",
+			pr_debug("[%d] No change in state, ctrl_state=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if (state->power_state != DSI_CTRL_POWER_VREG_ON) {
@@ -379,7 +379,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case DSI_CTRL_OP_HOST_INIT:
 		if (state->host_initialized == op_state) {
-			pr_err("[%d] No change in state, host_init=%d\n",
+			pr_debug("[%d] No change in state, host_init=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if (state->power_state != DSI_CTRL_POWER_VREG_ON) {
@@ -390,7 +390,7 @@ static int dsi_ctrl_check_state(struct dsi_ctrl *dsi_ctrl,
 		break;
 	case DSI_CTRL_OP_TPG:
 		if (state->tpg_enabled == op_state) {
-			pr_err("[%d] No change in state, tpg_enabled=%d\n",
+			pr_debug("[%d] No change in state, tpg_enabled=%d\n",
 			       dsi_ctrl->cell_index, op_state);
 			rc = -EINVAL;
 		} else if ((state->power_state != DSI_CTRL_POWER_VREG_ON) ||
