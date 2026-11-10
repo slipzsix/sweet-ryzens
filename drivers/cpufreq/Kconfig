@@ -111,6 +111,16 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
+config CPU_FREQ_DEFAULT_GOV_REFLEX
+	bool "reflex"
+	depends on SMP
+	select CPU_FREQ_GOV_REFLEX
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'reflex' CPUFreq governor by default. If unsure,
+	  have a look at the help section of that governor. The fallback
+	  governor will be 'performance'.
+
 config CPU_FREQ_DEFAULT_GOV_INTERACTIVE
 	bool "interactive"
 	select CPU_FREQ_GOV_INTERACTIVE
@@ -227,6 +237,26 @@ config CPU_FREQ_GOV_SCHEDUTIL
 	  case, it is proportional to the current frequency of the CPU.  The
 	  frequency tipping point is at utilization/capacity equal to 80% in
 	  both cases.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_REFLEX
+	bool "'reflex' cpufreq policy governor"
+	depends on CPU_FREQ && SMP
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  This governor is schedutil plus a measured fast path for rising
+	  load.  Each CPU measures, from its idle time and frequency scale,
+	  the demand it actually ran; a burst that follows an idle gets
+	  speed within one tick instead of waiting for PELT to ramp up.
+	  The fast path is armed only on a real idle-to-busy edge and fades
+	  out over a short window, so a light or steady workload keeps
+	  schedutil's adaptive behaviour instead of being pinned high.
+
+	  The latency_weight tunable sets how aggressive the rising-edge
+	  floor is; boost_idle_us and boost_window_us bound when and for
+	  how long it applies.
 
 	  If in doubt, say N.
 
