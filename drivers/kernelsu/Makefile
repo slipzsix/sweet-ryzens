@@ -1,0 +1,222 @@
+# NOTE: unity build. single unit.
+
+obj-$(CONFIG_KSU) := kernelsu.o
+kernelsu-y := ksu.o
+
+CFLAGS_ksu.o += -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
+CFLAGS_ksu.o += -I$(objtree)/security/selinux
+
+KDIR := $(KDIR)
+MDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+$(info -- KDIR: $(KDIR))
+$(info -- MDIR: $(MDIR))
+
+# compliant to last upstream kernel change as of 02ffbd4
+KSU_VERSION := 32725
+KSU_VERSION_TAG := v3.3.1
+KSU_VERSION_FULL := $(KSU_VERSION_TAG)-$(KSU_VERSION)
+
+KSU_KSUN_OFFSET := 779
+KSU_BKSU_OFFSET := 2535
+KSU_FINASU_OFFSET := 469
+
+# KernelSU-Next (rifsxd/KernelSU-Next v3.4.2)
+KSU_KSUN_VERSION := $(shell echo $$(($(KSU_VERSION) + $(KSU_KSUN_OFFSET))))
+KSU_KSUN_TAG := v3.4.2
+KSU_KSUN_VERSION_FULL := $(KSU_KSUN_TAG)-$(KSU_KSUN_VERSION)
+
+# BakaSU / ReSukiSU (Baka-SU/BakaSU v4.2.0-rc3)
+KSU_BKSU_VERSION := $(shell echo $$(($(KSU_VERSION) + $(KSU_BKSU_OFFSET))))
+KSU_BKSU_TAG := v4.2.0
+KSU_BKSU_VERSION_FULL := $(KSU_BKSU_TAG)-$(KSU_BKSU_VERSION)@BakaSU
+
+# FinaSU (LyraVoid/FinaSU v1.6.0)
+KSU_FINASU_VERSION := $(shell echo $$(($(KSU_VERSION) + $(KSU_FINASU_OFFSET))))
+KSU_FINASU_TAG := v1.6.0
+KSU_FINASU_VERSION_FULL := $(KSU_FINASU_TAG)-$(KSU_FINASU_VERSION)
+
+CFLAGS_ksu.o += -DKSU_VERSION=$(KSU_VERSION) \
+    -DKSU_VERSION_TAG=\"$(KSU_VERSION_TAG)\" \
+    -DKSU_VERSION_FULL=\"$(KSU_VERSION_FULL)\" \
+    -DKSU_KSUN_VERSION=$(KSU_KSUN_VERSION) \
+    -DKSU_KSUN_TAG=\"$(KSU_KSUN_TAG)\" \
+    -DKSU_KSUN_VERSION_FULL=\"$(KSU_KSUN_VERSION_FULL)\" \
+    -DKSU_BKSU_VERSION=$(KSU_BKSU_VERSION) \
+    -DKSU_BKSU_TAG=\"$(KSU_BKSU_TAG)\" \
+    -DKSU_BKSU_VERSION_FULL=\"$(KSU_BKSU_VERSION_FULL)\" \
+    -DKSU_FINASU_VERSION=$(KSU_FINASU_VERSION) \
+    -DKSU_FINASU_TAG=\"$(KSU_FINASU_TAG)\" \
+    -DKSU_FINASU_VERSION_FULL=\"$(KSU_FINASU_VERSION_FULL)\"
+
+$(info -- KernelSU tag: $(KSU_VERSION_TAG))
+$(info -- KernelSU version: $(KSU_VERSION))
+$(info -- KernelSU full version: $(KSU_VERSION_FULL))
+$(info -- KernelSU-Next tag: $(KSU_KSUN_TAG))
+$(info -- KernelSU-Next version: $(KSU_KSUN_VERSION))
+$(info -- KernelSU-Next full version: $(KSU_KSUN_VERSION_FULL))
+$(info -- BakaSU tag: $(KSU_BKSU_TAG))
+$(info -- BakaSU version: $(KSU_BKSU_VERSION))
+$(info -- FinaSU tag: $(KSU_FINASU_TAG))
+$(info -- FinaSU version: $(KSU_FINASU_VERSION))
+
+ifeq ($(CONFIG_KSU_KPROBES_KSUD),y)
+KSU_HOOK_TYPE := Kprobes
+else ifeq ($(CONFIG_KSU_TAMPER_SYSCALL_TABLE),y)
+KSU_HOOK_TYPE := Net.Reaper
+else ifeq ($(CONFIG_KSU_HACK_ARM64_BRANCH_LINK),y)
+KSU_HOOK_TYPE := Net.Reaper
+else
+KSU_HOOK_TYPE := Manual
+endif
+
+$(info -- KernelSU hook type: $(KSU_HOOK_TYPE))
+
+KSU_PACKAGE_NAME := me.weishu.kernelsu
+KSU_EXPECTED_SIZE := 0x033b
+KSU_EXPECTED_HASH := c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6
+
+$(info -- KernelSU Manager package name: $(KSU_PACKAGE_NAME))
+$(info -- KernelSU Manager signature size: $(KSU_EXPECTED_SIZE))
+$(info -- KernelSU Manager signature hash: $(KSU_EXPECTED_HASH))
+
+CFLAGS_ksu.o += -DKSU_PACKAGE_NAME=\"$(KSU_PACKAGE_NAME)\"
+CFLAGS_ksu.o += -DEXPECTED_SIZE=$(KSU_EXPECTED_SIZE)
+CFLAGS_ksu.o += -DEXPECTED_HASH=\"$(KSU_EXPECTED_HASH)\"
+
+ifeq ($(shell grep -q " current_sid(void)" $(srctree)/security/selinux/include/objsec.h; echo $$?),0)
+CFLAGS_ksu.o += -DKSU_COMPAT_HAS_CURRENT_SID
+endif
+
+ifeq ($(shell grep -q "struct selinux_state " $(srctree)/security/selinux/include/security.h; echo $$?),0)
+CFLAGS_ksu.o += -DKSU_COMPAT_HAS_SELINUX_STATE
+endif
+
+# UL, look for iterate_dir on ‎fs/readdir.c
+ifeq ($(shell grep -q "^int iterate_dir" $(srctree)/fs/readdir.c 2>/dev/null; echo $$?),0)
+$(info -- KernelSU/compat: iterate_dir found!)
+CFLAGS_ksu.o += -DKSU_HAS_ITERATE_DIR
+endif
+
+ifeq ($(shell grep -q "struct type_datum \*\*type_val_to_struct;" $(srctree)/security/selinux/ss/policydb.h; echo $$?),0)
+CFLAGS_ksu.o += -DKSU_TYPE_VAL_TO_STRUCT
+endif
+
+# half-assed-backport from 5.1
+ifeq ($(shell grep -q "struct type_datum \*\*type_val_to_struct_array;" $(srctree)/security/selinux/ss/policydb.h; echo $$?),0)
+CFLAGS_ksu.o += -DKSU_TYPE_VAL_TO_STRUCT_ARRAY
+endif
+
+# branch link hook vfs_statx, this newer version uses struct filename
+ifeq ($(shell grep "int vfs_statx" $(srctree)/fs/stat.c 2>/dev/null | grep -q "struct filename" 2>/dev/null; echo $$?),0)
+# $(info -- KernelSU/compat: vfs_statx has struct filename argument!)
+CFLAGS_ksu.o += -DKSU_HAS_VFS_STATX2
+endif
+
+# branch link hook, do_faccessat
+ifeq ($(shell grep "long do_faccessat" $(srctree)/fs/open.c 2>/dev/null | grep -q "flags" 2>/dev/null; echo $$?),0)
+# $(info -- KernelSU/compat: do_faccessat has flags argument!)
+CFLAGS_ksu.o += -DKSU_HAS_FACCESSAT2
+endif
+
+# UL, look for read_iter on f_op struct
+ifeq ($(shell grep -q "read_iter" $(srctree)/include/linux/fs.h 2>/dev/null; echo $$?),0)
+$(info -- KernelSU/compat: f_op->read_iter found!)
+CFLAGS_ksu.o += -DKSU_HAS_FOP_READ_ITER
+endif
+
+CFLAGS_ksu.o += $(call cc-option, -Wno-declaration-after-statement)
+CFLAGS_ksu.o += $(call cc-option, -Wno-implicit-function-declaration)
+CFLAGS_ksu.o += $(call cc-option, -Wno-missing-prototypes)
+CFLAGS_ksu.o += $(call cc-option, -Wno-strict-prototypes)
+CFLAGS_ksu.o += $(call cc-option, -Wno-int-conversion)
+CFLAGS_ksu.o += $(call cc-option, -Wno-int-to-pointer-cast)
+CFLAGS_ksu.o += $(call cc-option, -Wno-pointer-to-int-cast)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-variable)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-function)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-label)
+CFLAGS_ksu.o += $(call cc-option, -Wno-format)
+CFLAGS_ksu.o += $(call cc-option, -Wno-macro-redefined)
+CFLAGS_ksu.o += $(call cc-option, -Wno-incompatible-pointer-types-discards-qualifiers)
+CFLAGS_ksu.o += $(call cc-option, -Wno-discarded-qualifiers)
+CFLAGS_ksu.o += $(call cc-option, -Wno-deprecated-octal-literals)
+
+# dont be too strict
+CFLAGS_REMOVE_ksu.o += -Werror
+
+# so we can see stack use atleast, as we disable all stack safety here
+CFLAGS_ksu.o += $(call cc-option, -Wframe-larger-than=1024)
+
+# to make sure we can use builtins
+CFLAGS_REMOVE_ksu.o += -fno-builtin
+
+# Os to O2, we dont care for anything else. O3 vs O2 codegen on hotpath is same.
+ifeq ($(CONFIG_CC_OPTIMIZE_FOR_SIZE),y)
+CFLAGS_REMOVE_ksu.o += -Oz
+CFLAGS_REMOVE_ksu.o += -Os
+CFLAGS_ksu.o += -O2
+endif
+
+# attempt to enable gnu11 up to gnu2y
+# we skip gnu2x here due to its inconsistency
+CFLAGS_ksu.o += $(call cc-option, -std=gnu11)
+CFLAGS_ksu.o += $(call cc-option, -std=gnu17)
+CFLAGS_ksu.o += $(call cc-option, -std=gnu23)
+CFLAGS_ksu.o += $(call cc-option, -std=gnu2y)
+
+#ifeq ($(shell $(CC) -v 2>&1 | grep -q 'clang'; echo $$?),0)
+# $(info -- KernelSU/CC: clang!)
+#endif
+
+# always inline atomics
+# clang and gcc CAN try to drop a runtime C11 atomics detector
+# https://github.com/llvm/llvm-project/blob/main/llvm/test/CodeGen/AArch64/atomic-ops.ll
+# however this is problematic to us as those cannot be linked to the kernel (e.g. __aarch64_cas4_acq, __aarch64_cas4_rel)
+# so for LKM they just get plain ARMv8.0 atomics, not LSE / LSE2, even when the device is capable of LSE.
+ifeq ($(CONFIG_ARM64),y)
+CFLAGS_ksu.o += $(call cc-option, -mno-outline-atomics)
+endif
+
+# Optional: for LKM users, I recommend users to build it themselves with optimizations.
+# you can get optimized codegen especially around atomics.
+# hint: decode your own /proc/cpuinfo and check it here https://github.com/llvm/llvm-project/blob/main/llvm/lib/TargetParser/Host.cpp
+# comment it out and put your cpu / arch here
+# CFLAGS_ksu.o += -mcpu=cortex-a76 -mtune=cortex-a76
+
+ifneq ($(CONFIG_KSU_DEBUG),y)
+# strip, remove tracing / profiling
+# comment out if proper backtrace is needed
+CFLAGS_ksu.o += -g0 -fno-unwind-tables -fno-asynchronous-unwind-tables -fomit-frame-pointer
+CFLAGS_ksu.o += $(call cc-option, -momit-leaf-frame-pointer)
+
+# no profiling
+CFLAGS_REMOVE_ksu.o += $(CC_FLAGS_FTRACE)
+CFLAGS_REMOVE_ksu.o += -pg
+
+# no need for stack init
+CFLAGS_REMOVE_ksu.o += -ftrivial-auto-var-init=pattern
+CFLAGS_REMOVE_ksu.o += -ftrivial-auto-var-init=zero
+CFLAGS_REMOVE_ksu.o += -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
+
+# if cflags can be macro'd, this will be called 'TRUST_ME'
+CFLAGS_ksu.o += -fno-stack-protector -fno-stack-check
+CFLAGS_REMOVE_ksu.o += -fsanitize=shadow-call-stack
+endif # CONFIG_KSU_DEBUG
+
+# Native fallback targets matching the traditional out-of-tree build method
+all:
+	$(MAKE) -C $(KDIR) M=$(MDIR) modules
+clean:
+	$(MAKE) -C $(KDIR) M=$(MDIR) clean
+
+## For susfs stuff ##
+ifeq ($(shell test -e $(srctree)/fs/susfs.c; echo $$?),0)
+$(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
+$(info )
+$(info -- SUSFS_VERSION: $(SUSFS_VERSION))
+else
+$(info -- You have not integrated susfs in your kernel yet.)
+$(info -- Read: https://gitlab.com/simonpunk/susfs4ksu)
+endif
+
+# Keep a new line here!! Because someone may append config
