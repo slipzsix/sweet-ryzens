@@ -39,7 +39,15 @@
  *   - the speed floor is armed only at a genuine idle -> busy edge and
  *     then fades out linearly over a short window.  In steady state the
  *     governor is schedutil again: PELT/WALT utilization, 1.25x
- *     headroom, iowait boost, uclamp and RT/DL handling.
+ *     headroom, iowait boost, uclamp and RT/DL handling;
+ *   - on the performance (capacity-max) cluster the edge additionally
+ *     needs a sustained running time behind it.  A tap or a single frame
+ *     that merely wakes a big core must not open a full-cluster jump:
+ *     apart from the frequency itself, that jump also inflates the
+ *     task's frequency-scaled PELT utilization, which makes EAS keep
+ *     choosing the big cores.  Requiring real, sustained load keeps
+ *     light work on the little cluster and leaves the big cores for
+ *     heavy workloads.
  *
  * The result is a governor that reacts within one tick to a burst after
  * idle, but does not keep the CPU at a high frequency when the load is
@@ -68,16 +76,17 @@
 #define CPUFREQ_REFLEX_PROGNAME "Reflex CPUFreq Governor"
 #define CPUFREQ_REFLEX_AUTHOR   "Masahito Suzuki"
 
-#define CPUFREQ_REFLEX_VERSION  "0.4.0-sweet"
+#define CPUFREQ_REFLEX_VERSION  "0.4.1-sweet"
 
 #define RFX_KTHREAD_PRIORITY	50
 #define IOWAIT_BOOST_MIN	(SCHED_CAPACITY_SCALE / 8)
 
 /* s*(p * lambda) is tabulated at this many evenly spaced p */
 #define RFX_FLOOR_N		65
-/* latency_weight: lambda, per mille of lambda_max */
 /*
- * sweet: policy0 is six CPUs at capacity 488 and tops out at 1.80 GHz;
+ * latency_weight: lambda, per mille of lambda_max
+ *
+ * sweet: policy0 is six CPUs at capacity ~600 and tops out at 1.80 GHz;
  * policy6 tops out at 2.30 GHz.  250 puts the p=1 floor near 1.13/1.45
  * GHz, so a burst after idle still gets a useful step up, while the
  * short fade and the idle -> active test keep an unused CPU at its
@@ -93,12 +102,24 @@
 #define RFX_BOOST_WINDOW_US_DEF	16000
 #define RFX_BOOST_WINDOW_US_LIM	200000
 
+/*
+ * The performance cluster also needs this much sustained running time
+ * (us) before the rising edge is allowed.  With the ~3.3 ms sample
+ * interval of this tree, a lone burst after idle leaves N close to one
+ * interval, while a core that is genuinely busy settles several times
+ * higher.  0 allows the fast path on the performance cluster
+ * unconditionally (the pre-0.4.1 behaviour).
+ */
+#define RFX_BOOST_SUSTAIN_US_DEF	10000
+#define RFX_BOOST_SUSTAIN_US_LIM	200000
+
 struct rfx_tunables {
 	struct gov_attr_set	attr_set;
 	unsigned int		rate_limit_us;
 	unsigned int		latency_weight;	/* lambda, per mille of lambda_max */
 	unsigned int		boost_idle_us;	/* idle before the rising edge */
 	unsigned int		boost_window_us;/* how long the floor fades */
+	unsigned int		boost_sustain_us;/* perf cluster: run time needed */
 };
 
 struct rfx_policy {
@@ -112,6 +133,7 @@ struct rfx_policy {
 	s64			freq_update_delay_ns;
 	s64			sample_delay_ns;	/* tau_min */
 	unsigned int		alpha_us;		/* tau_min, in us */
+	bool			perf_cluster;		/* capacity-max domain */
 	unsigned int		next_freq;
 	unsigned int		cached_raw_freq;
 
@@ -363,6 +385,49 @@ static inline bool rfx_active(struct rfx_cpu *rfx_c)
 }
 
 /*
+ * The performance cluster is the capacity-max frequency domain.  Compare
+ * the policy's capacity against every possible CPU, not the online set,
+ * so this stays right even if the little cluster initializes first at
+ * boot.  A device whose CPUs all share one capacity has no separate
+ * performance cluster and is left ungated.
+ */
+static bool rfx_is_perf_cluster(struct cpufreq_policy *policy)
+{
+	unsigned long cap = arch_scale_cpu_capacity(NULL,
+					cpumask_first(policy->related_cpus));
+	unsigned long max_cap = 0, min_cap = ~0UL;
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		unsigned long c = arch_scale_cpu_capacity(NULL, cpu);
+
+		max_cap = max(max_cap, c);
+		min_cap = min(min_cap, c);
+	}
+
+	return max_cap > min_cap && cap >= max_cap;
+}
+
+/*
+ * A rising edge on the performance cluster also needs sustained running
+ * time behind it: N is the running time seen lately, and a lone burst
+ * after idle leaves it near one sample interval, while steady load
+ * builds several times that.  A saddle in big-core frequency for a tap
+ * or one frame is not worth the frequency-scaled PELT feedback that
+ * keeps EAS choosing those cores.  sustain_us == 0 restores the old,
+ * unconditional fast path for users who want it.
+ */
+static inline bool rfx_sustained(struct rfx_cpu *rfx_c,
+				 struct rfx_policy *rfx_pol,
+				 unsigned int sustain_us)
+{
+	if (!rfx_pol->perf_cluster || !sustain_us)
+		return true;
+
+	return rfx_c->N >= sustain_us;
+}
+
+/*
  * Close the interval since the last sample, on this CPU only: kcpustat
  * of a remote CPU would be read with this CPU's clock.  An interval of
  * a nohz idle simply closes on the first callback after the wakeup.
@@ -379,7 +444,7 @@ static void rfx_sample(struct rfx_cpu *rfx_c, u64 time)
 	struct rfx_tunables *tunables = rfx_pol->tunables;
 	u64 idle, wall, dw, di, decayed;
 	u32 n_old;
-	unsigned int boost_idle_us;
+	unsigned int boost_idle_us, sustain_us;
 
 	if (rfx_c->cpu != smp_processor_id() ||
 	    (s64)(time - rfx_c->last_sample) < rfx_pol->sample_delay_ns)
@@ -418,11 +483,15 @@ static void rfx_sample(struct rfx_cpu *rfx_c, u64 time)
 	 * Arm the fast path only on a real rising edge: a CPU that is now
 	 * runnable after a meaningful idle, or one that has barely run
 	 * lately.  A 10% background task with 3.6ms gaps does not qualify;
-	 * a 60/90/120Hz frame gap and a tap after idle do.
+	 * a 60/90/120Hz frame gap and a tap after idle do.  On the
+	 * performance cluster the load must also be sustained (see
+	 * rfx_sustained()); note that N was just updated above.
 	 */
 	boost_idle_us = READ_ONCE(tunables->boost_idle_us);
+	sustain_us = READ_ONCE(tunables->boost_sustain_us);
 	if (rfx_active(rfx_c) && di > 0 &&
-	    (di >= boost_idle_us || n_old < (rfx_pol->alpha_us >> 1))) {
+	    (di >= boost_idle_us || n_old < (rfx_pol->alpha_us >> 1)) &&
+	    rfx_sustained(rfx_c, rfx_pol, sustain_us)) {
 		rfx_c->boost_start = time;
 		rfx_c->boost_until = time +
 			(u64)READ_ONCE(tunables->boost_window_us) * NSEC_PER_USEC;
@@ -804,6 +873,27 @@ static ssize_t boost_window_us_store(struct gov_attr_set *attr_set,
 
 static struct governor_attr boost_window_us = __ATTR_RW(boost_window_us);
 
+static ssize_t boost_sustain_us_show(struct gov_attr_set *attr_set, char *buf)
+{
+	return sprintf(buf, "%u\n", to_rfx_tunables(attr_set)->boost_sustain_us);
+}
+
+static ssize_t boost_sustain_us_store(struct gov_attr_set *attr_set,
+				      const char *buf, size_t count)
+{
+	struct rfx_tunables *tunables = to_rfx_tunables(attr_set);
+	unsigned int val;
+
+	if (kstrtouint(buf, 10, &val) || val > RFX_BOOST_SUSTAIN_US_LIM)
+		return -EINVAL;
+
+	WRITE_ONCE(tunables->boost_sustain_us, val);
+
+	return count;
+}
+
+static struct governor_attr boost_sustain_us = __ATTR_RW(boost_sustain_us);
+
 static ssize_t version_show(struct gov_attr_set *attr_set, char *buf)
 {
 	return sprintf(buf, "%s\n", CPUFREQ_REFLEX_VERSION);
@@ -816,6 +906,7 @@ static struct attribute *rfx_attrs[] = {
 	&latency_weight.attr,
 	&boost_idle_us.attr,
 	&boost_window_us.attr,
+	&boost_sustain_us.attr,
 	NULL
 };
 
@@ -976,6 +1067,7 @@ static int rfx_init(struct cpufreq_policy *policy)
 	tunables->latency_weight = RFX_LATENCY_WEIGHT_DEF;
 	tunables->boost_idle_us = RFX_BOOST_IDLE_US_DEF;
 	tunables->boost_window_us = RFX_BOOST_WINDOW_US_DEF;
+	tunables->boost_sustain_us = RFX_BOOST_SUSTAIN_US_DEF;
 
 	policy->governor_data = rfx_pol;
 	rfx_pol->tunables = tunables;
@@ -1038,6 +1130,7 @@ static int rfx_start(struct cpufreq_policy *policy)
 
 	rfx_update_rate_limit_us(rfx_pol);
 	rfx_speed_floors(rfx_pol);
+	rfx_pol->perf_cluster		= rfx_is_perf_cluster(policy);
 	rfx_pol->last_freq_update_time	= 0;
 	rfx_pol->next_freq		= UINT_MAX;
 	rfx_pol->work_in_progress	= false;
