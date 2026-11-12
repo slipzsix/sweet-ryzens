@@ -1,0 +1,169 @@
+name: sr-stream
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [MIUI, LEGACY, AOSP]
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+          fetch-depth: 1
+      
+    - name: 💽 Free Disk Space
+      run: |
+            echo "Disk before cleanup:"
+            df -h /
+            sudo rm -rf /usr/share/dotnet
+            sudo rm -rf /usr/local/lib/android
+            sudo rm -rf /opt/ghc
+            sudo rm -rf /opt/hostedtoolcache/CodeQL
+            sudo rm -rf /usr/local/share/boost
+            sudo rm -rf /usr/share/swift
+            sudo rm -rf /usr/local/.ghcup
+            sudo apt-get clean
+            echo "Disk after cleanup:"
+            df -h /
+      
+    - name: 🕚 Prepare timezone 
+      run: |
+            echo "BUILD_TIME=$(TZ=Asia/Jakarta date "+%d%m%Y-%H%M")" >> $GITHUB_ENV
+            sudo rm /etc/localtime
+            sudo ln -s /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+        
+    - name: ♻️ Install Dependencies
+      run: |
+            sudo apt update -y
+            sudo apt install -y bc cpio flex bison git python-is-python3 tar aria2 perl wget curl lz4 libssl-dev libxml2
+        
+    - name: ♻️ Cloning Toolchains 
+      run: |
+            set -e
+            mkdir -p clang
+            cd clang
+            curl -L --fail --retry 3 \
+            -o clang.tar.zst \
+            https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/10032024/neutron-clang-10032024.tar.zst
+            tar --use-compress-program=unzstd -xvf clang.tar.zst
+            cd ..
+            git clone https://github.com/greenforce-project/gcc-arm64 -b main --depth=1 gcc64
+            git clone https://github.com/greenforce-project/gcc-arm -b main --depth=1 gcc32
+            echo "CLANG_PATH=$(pwd)/clang" >> $GITHUB_ENV
+            echo "PATH=$(pwd)/clang/bin:$PATH" >> $GITHUB_ENV
+            echo "GCC64_PATH=$(pwd)/gcc64" >> $GITHUB_ENV
+            echo "GCC32_PATH=$(pwd)/gcc32" >> $GITHUB_ENV
+            
+    - name: 📂 Apply patch for LEGACY variant
+      if: matrix.variant == 'LEGACY'
+      run: |
+            git config --global user.name "GitHub Actions Bot"
+            git config --global user.email "actions@github.com"
+            git fetch --no-tags --depth=2 origin 199abb8afedefb0a983989604575b87aa58ba2ed
+            git cherry-pick -X theirs 199abb8afedefb0a983989604575b87aa58ba2ed
+
+    - name: 📂 Apply patch for AOSP variant
+      if: matrix.variant == 'AOSP'
+      run: |
+            git config --global user.name "GitHub Actions Bot"
+            git config --global user.email "actions@github.com"
+            git fetch --no-tags --depth=3 origin 280bb9a36fe4bfae196dbc97b1d7c21db48b69fb
+            git cherry-pick 55a747bcbe6d2b26f0257cf1a7ab755a8b4cf90e
+            git cherry-pick 280bb9a36fe4bfae196dbc97b1d7c21db48b69fb
+
+    - name: ♻️ Set Build Filename Prefix
+      run: |
+            if [ "${{ matrix.variant }}" == "MIUI" ]; then
+              echo "PREFIX=MIUI" >> $GITHUB_ENV
+              echo "KERNEL_NAME=SUperRyzeNS [MIUI]" >> $GITHUB_ENV
+            elif [ "${{ matrix.variant }}" == "AOSP" ]; then
+              echo "PREFIX=AOSP" >> $GITHUB_ENV
+              echo "KERNEL_NAME=SUperRyzeNS [AOSP]" >> $GITHUB_ENV
+            else
+              echo "PREFIX=LEGACY" >> $GITHUB_ENV
+              echo "KERNEL_NAME=SUperRyzeNS [LEGACY]" >> $GITHUB_ENV
+            fi
+
+    - name: 🖥️ MIUI Dimension
+      if: matrix.variant != 'AOSP'
+      run: |
+            sed -i 's/qcom,mdss-pan-physical-width-dimension = <69>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
+            sed -i 's/qcom,mdss-pan-physical-height-dimension = <154>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
+
+    - name: 🖥️ AOSP Dimension
+      if: matrix.variant == 'AOSP'
+      run: |
+            sed -i 's/qcom,mdss-pan-physical-width-dimension = <695>;$/qcom,mdss-pan-physical-width-dimension = <69>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
+            sed -i 's/qcom,mdss-pan-physical-height-dimension = <1546>;$/qcom,mdss-pan-physical-height-dimension = <154>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
+            
+    - name: 🛡️Apply NoMount
+      run: |
+            curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s master
+    
+    - name: ♻️ Build 🦊SUperRyzeNS
+      timeout-minutes: 60
+      run: |
+           export ARCH=arm64
+           export PATH="$CLANG_PATH/bin:$GCC64_PATH/bin:$GCC32_PATH/bin:$PATH"
+           export KBUILD_BUILD_USER=slipz
+           export KBUILD_BUILD_HOST=SIX
+           export KBUILD_COMPILER_STRING="$CLANG_PATH/clang"
+           make O=out vendor/sweet_defconfig
+           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+             CC=clang \
+             CLANG_TRIPLE=aarch64-linux-gnu- \
+             CROSS_COMPILE=$GCC64_PATH/bin/aarch64-elf- \
+             CROSS_COMPILE_ARM32=$GCC32_PATH/bin/arm-eabi-
+           mv out/.config out/sweet_defconfig.txt
+           
+    - name: 📩 Upload defconfig 
+      uses: actions/upload-artifact@v4
+      with:
+        name: defconfig-${{ env.PREFIX }}-${{ env.BUILD_TIME }}
+        path: out/sweet_defconfig.txt
+
+    - name: ♻️ Fetch AnyKernel3
+      run: |
+           git clone --depth=1 https://github.com/slipzryzens/anykernel3 -b main AnyKernel3  
+           cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+           cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+           cp out/arch/arm64/boot/dtb.img AnyKernel3/dtb.img
+           cd AnyKernel3
+           zip -r "SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}.zip" *
+
+    - name: 📩 Upload Kernel
+      uses: actions/upload-artifact@v4
+      with:
+        name: SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}
+        path: AnyKernel3/SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}.zip
+
+    - name: 💌 Sending to zeNS Telegram Bot
+      if: success()
+      timeout-minutes: 10
+      run: |
+
+        ZIP_NAME="SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}.zip"
+
+        CAPTION="✅ <b>Kernel Build Success</b>
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        Device          : Redmi Note 10 Pro
+        Kernel           : ${{ env.KERNEL_NAME }}
+        Toolchain      : Neutron / Google Clang
+        Sender          : zeNS Bot
+        Build Time    : ${{ env.BUILD_TIME }}
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        curl -v -f \
+          --connect-timeout 30 \
+          --max-time 300 \
+          --retry 3 \
+          --retry-delay 5 \
+          -F document=@"AnyKernel3/$ZIP_NAME" \
+          -F chat_id="${{ secrets.TG_CHAT_ID }}" \
+          -F parse_mode=HTML \
+          -F caption="$CAPTION" \
+          https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument
