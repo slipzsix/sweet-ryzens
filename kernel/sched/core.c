@@ -2455,9 +2455,12 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->boost_expires        = 0;
 	p->boost_period         = 0;
 
-	#ifdef CONFIG_SCHED_BORE
+	p->se.vlag			= 0;
+	p->se.slice			= sysctl_sched_base_slice;
+
+#ifdef CONFIG_SCHED_BORE
 	sched_fork_bore(p);
-	#endif // CONFIG_SCHED_BORE
+#endif // CONFIG_SCHED_BORE
 
 	INIT_LIST_HEAD(&p->se.group_node);
 
