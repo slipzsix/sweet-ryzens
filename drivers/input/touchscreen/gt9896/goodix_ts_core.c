@@ -1774,6 +1774,16 @@ static void goodix_ts_esd_work(struct work_struct *work)
 	if (hw_ops->check_hw)
 		r = hw_ops->check_hw(core->ts_dev);
 	if (r < 0) {
+		bool irq_was_enabled = atomic_read(&core->irq_enabled);
+
+		/*
+		 * The recovery below power cycles the controller and pulls the
+		 * reset line, just like resume does.  Keep the threaded IRQ
+		 * from starting an I2C transfer while the chip is held in
+		 * reset, and restore the previous IRQ state afterwards.
+		 */
+		if (irq_was_enabled)
+			goodix_ts_irq_enable(core, false);
 		goodix_ts_power_off(core);
 		goodix_ts_power_on(core);
 		if (hw_ops->reset)
@@ -1784,6 +1794,8 @@ static void goodix_ts_esd_work(struct work_struct *work)
 					&data, 1);
 		if (r < 0)
 			ts_err("failed init dynamic esd");
+		if (irq_was_enabled)
+			goodix_ts_irq_enable(core, true);
 	} else {
 		/*init dynamic esd*/
 		r = hw_ops->write_trans(core->ts_dev,
@@ -2073,6 +2085,20 @@ static int goodix_ts_resume(struct goodix_ts_core *core_data)
 #endif
 
 	atomic_set(&core_data->suspended, 0);
+	/*
+	 * Quiesce the threaded IRQ before pulling the reset line.  With the
+	 * gesture module armed the interrupt stays enabled across suspend, so
+	 * a pending touch or gesture frame can still be in the middle of an
+	 * I2C read when the reset line goes low.  That transfer times out on
+	 * the GENI controller and stalls the resume path by a retry interval,
+	 * which shows up as a touch that feels dead right after the panel
+	 * comes back on.
+	 *
+	 * The IRQ is re-enabled further down, on the success path only.  The
+	 * EVT_CANCEL_RESUME jumps to out: and keep the previous behaviour of
+	 * leaving the IRQ disabled, since the chip was never resumed.
+	 */
+	goodix_ts_irq_enable(core_data, false);
 	/* resume device */
 	if (ts_dev && ts_dev->hw_ops->resume)
 		ts_dev->hw_ops->resume(ts_dev);
