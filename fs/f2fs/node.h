@@ -18,18 +18,33 @@
 /* size of free nid batch when shrinking */
 #define SHRINK_NID_BATCH_SIZE	8
 
-#define DEF_RA_NID_PAGES	0	/* # of nid pages to be readaheaded */
+/* # of nid pages to be readaheaded */
+#define DEF_RA_NID_PAGES	4
 
 /* maximum readahead size for node during getting data blocks */
 #define MAX_RA_NODE		128
 
-/* control the memory footprint threshold (10MB per 1GB ram) */
+/*
+ * Control the memory footprint threshold (10MB per 1GB ram).
+ *
+ * Left at the upstream default on purpose.  Raising it multiplies the
+ * allowance of every f2fs cache (free nids, NAT entries, ino entries,
+ * extent cache, discard commands), not just the NAT entries we want to
+ * grow here, and the extent cache in particular has no size cap of its
+ * own beyond this check.
+ */
 #define DEF_RAM_THRESHOLD	1
 
 /* control dirty nats ratio threshold (default: 10% over max nid count) */
 #define DEF_DIRTY_NAT_RATIO_THRESHOLD		10
-/* control total # of nats */
-#define DEF_NAT_CACHE_THRESHOLD			100000
+/*
+ * Control total # of nats.  The NAT cache holds node id -> block address
+ * mappings, so a larger cache turns app launches and image heavy
+ * directories into cache hits instead of NAT page reads.  The cache is
+ * still bounded by the memory check in f2fs_available_free_memory() and
+ * is reclaimable through the f2fs shrinker.
+ */
+#define DEF_NAT_CACHE_THRESHOLD			1000000
 
 /* control total # of node writes used for roll-fowrad recovery */
 #define DEF_RF_NODE_BLOCKS			0

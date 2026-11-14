@@ -68,7 +68,13 @@ bool f2fs_available_free_memory(struct f2fs_sb_info *sbi, int type)
 	} else if (type == NAT_ENTRIES) {
 		mem_size = (nm_i->nat_cnt[TOTAL_NAT] *
 				sizeof(struct nat_entry)) >> PAGE_SHIFT;
-		res = mem_size < ((avail_ram * nm_i->ram_thresh / 100) >> 2);
+		/*
+		 * Allow half of the f2fs budget for NAT entries.  Each entry
+		 * is 32 bytes, so on a 6GB device this tops out around 30MB
+		 * (roughly 900k entries) and stays shrinkable through the
+		 * f2fs shrinker.
+		 */
+		res = mem_size < ((avail_ram * nm_i->ram_thresh / 100) >> 1);
 		if (excess_cached_nats(sbi))
 			res = false;
 	} else if (type == DIRTY_DENTS) {
@@ -212,7 +218,9 @@ static struct nat_entry *__lookup_nat_cache(struct f2fs_nm_info *nm_i, nid_t n)
 	/* for recent accessed nat entry, move it to tail of lru list */
 	if (ne && !get_nat_flag(ne, IS_DIRTY)) {
 		spin_lock(&nm_i->nat_list_lock);
-		if (!list_empty(&ne->list))
+		/* list_move_tail() on the tail entry is a no-op */
+		if (!list_empty(&ne->list) &&
+		    !list_is_last(&ne->list, &nm_i->nat_entries))
 			list_move_tail(&ne->list, &nm_i->nat_entries);
 		spin_unlock(&nm_i->nat_list_lock);
 	}
