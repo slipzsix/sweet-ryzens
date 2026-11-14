@@ -1866,6 +1866,9 @@ extern void schedule_idle(void);
 
 extern void sysrq_sched_debug_show(void);
 extern void sched_init_granularity(void);
+#ifdef CONFIG_SCHED_BORE
+extern void sched_update_min_base_slice(void);
+#endif
 extern void update_max_interval(void);
 
 extern void init_sched_dl_class(void);
@@ -1968,6 +1971,9 @@ static inline u64 sched_avg_period(void)
 }
 
 extern unsigned int sysctl_sched_base_slice;
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_min_base_slice;
+#endif
 #ifdef CONFIG_SCHED_HRTICK
 
 /*
