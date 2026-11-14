@@ -214,9 +214,20 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 
 	freq = (freq + (freq >> 2)) * util / max;
 
-	if (freq == sg_policy->cached_raw_freq && sg_policy->next_freq != UINT_MAX)
+	if (freq == sg_policy->cached_raw_freq &&
+	    !sg_policy->need_freq_update && sg_policy->next_freq != UINT_MAX)
 		return sg_policy->next_freq;
+
+	/*
+	 * The cached raw frequency can only be reused as long as the policy
+	 * limits (and thus the driver's resolution of it) stay the same.
+	 * Clearing need_freq_update here is what makes the cache safe: the
+	 * limits_changed path sets it, so the first update after a limit
+	 * change always goes through cpufreq_driver_resolve_freq() again.
+	 */
 	sg_policy->cached_raw_freq = freq;
+	sg_policy->need_freq_update = false;
+
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
 
