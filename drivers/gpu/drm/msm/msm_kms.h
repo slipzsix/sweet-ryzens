@@ -20,7 +20,10 @@
 #define __MSM_KMS_H__
 
 #include <linux/clk.h>
+#include <linux/kthread.h>
+#include <linux/llist.h>
 #include <linux/regulator/consumer.h>
+#include <linux/workqueue.h>
 
 #include "msm_drv.h"
 
@@ -138,14 +141,55 @@ struct msm_kms {
 };
 
 /**
+ * struct msm_commit - one atomic commit handed to the display thread
+ * @crtc_mask: CRTCs whose update is pending in this commit
+ * @plane_mask: planes whose update is pending in this commit
+ * @nonblock: whether the caller asked for a non-blocking commit
+ * @commit_work: the work item queued on the CRTC's display thread
+ * @clean_work: cleanup work used by the non-blocking path
+ *
+ * This used to live in its own allocation, but it is embedded in
+ * msm_kms_state so that a commit and its atomic state share one lifetime.
+ */
+struct msm_commit {
+	uint32_t crtc_mask;
+	uint32_t plane_mask;
+	bool nonblock;
+	/*
+	 * The two work items are never used at the same time: the commit work
+	 * has finished running by the time the cleanup work is initialized.
+	 */
+	union {
+		struct kthread_work commit_work;
+		struct work_struct clean_work;
+	};
+};
+
+/**
  * Subclass of drm_atomic_state, to allow kms backend to have driver
  * private global state.  The kms backend can do whatever it wants
  * with the ->state ptr.  On ->atomic_state_clear() the ->state ptr
  * is kfree'd and set back to NULL.
+ *
+ * The per-object state arrays are preallocated here and recycled through
+ * msm_atomic_state_alloc()/msm_atomic_state_free() so that a normal commit
+ * does not have to allocate them again.
  */
 struct msm_kms_state {
 	struct drm_atomic_state base;
 	void *state;
+	struct msm_commit commit;
+	/*
+	 * Everything below @commit may not be allocated in the struct: for a
+	 * state that needs more CRTCs or planes than the arrays below can
+	 * hold, msm_atomic_state_alloc() only allocates up to the start of
+	 * @crtcs.  @crtcs must therefore come right after @commit, its address
+	 * is what msm_atomic_state_free() uses to tell the two cases apart.
+	 */
+	struct __drm_crtcs_state crtcs[MAX_CRTCS];
+	struct __drm_connnectors_state connectors[MAX_CONNECTORS];
+	struct __drm_planes_state planes[MAX_PLANES];
+	struct llist_node llist;
 };
 #define to_kms_state(x) container_of(x, struct msm_kms_state, base)
 

@@ -1093,9 +1093,29 @@ drm_atomic_get_connector_state(struct drm_atomic_state *state,
 		struct __drm_connnectors_state *c;
 		int alloc = max(index + 1, config->num_connector);
 
-		c = krealloc(state->connectors, alloc * sizeof(*state->connectors), GFP_KERNEL);
-		if (!c)
-			return ERR_PTR(-ENOMEM);
+		if (state->connectors_preallocated) {
+			/*
+			 * The current array belongs to the driver, so it
+			 * cannot be handed to krealloc().  Copy it out
+			 * instead; from here on the state owns it.  Note
+			 * that the flag must only be cleared once the copy
+			 * succeeded, otherwise a later free would try to
+			 * kfree() the driver's array.
+			 */
+			c = kmalloc(alloc * sizeof(*state->connectors),
+				    GFP_KERNEL);
+			if (!c)
+				return ERR_PTR(-ENOMEM);
+			memcpy(c, state->connectors,
+			       sizeof(*state->connectors) * state->num_connector);
+			state->connectors_preallocated = false;
+		} else {
+			c = krealloc(state->connectors,
+				     alloc * sizeof(*state->connectors),
+				     GFP_KERNEL);
+			if (!c)
+				return ERR_PTR(-ENOMEM);
+		}
 
 		state->connectors = c;
 		memset(&state->connectors[state->num_connector], 0,
