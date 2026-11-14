@@ -21,6 +21,10 @@
 
 #include "sched.h"
 
+#ifdef CONFIG_SCHED_BORE
+#include <linux/sched/bore.h>
+#endif /* CONFIG_SCHED_BORE */
+
 static DEFINE_SPINLOCK(sched_debug_lock);
 
 /*
@@ -539,6 +543,10 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 		SPLIT_NS(schedstat_val_or_zero(p->se.statistics.wait_sum)),
 		SPLIT_NS(p->se.sum_exec_runtime),
 		SPLIT_NS(schedstat_val_or_zero(p->se.statistics.sum_sleep_runtime)));
+
+#ifdef CONFIG_SCHED_BORE
+	SEQ_printf(m, " %2d", bore_score(p));
+#endif /* CONFIG_SCHED_BORE */
 
 #ifdef CONFIG_NUMA_BALANCING
 	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
@@ -1069,6 +1077,9 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 		   "nr_involuntary_switches", (long long)p->nivcsw);
 
 	P(se.load.weight);
+#ifdef CONFIG_SCHED_BORE
+	SEQ_printf(m, "%-45s:%21d\n", "bore.score", bore_score(p));
+#endif /* CONFIG_SCHED_BORE */
 #ifdef CONFIG_SMP
 	P(se.avg.load_sum);
 	P(se.avg.util_sum);
