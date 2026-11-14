@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [MIUI, LEGACY, AOSP]
+        variant: [MIUI, LEGACY, AOSP, AOSP-NSU]
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -67,13 +67,21 @@ jobs:
             git cherry-pick -X theirs 199abb8afedefb0a983989604575b87aa58ba2ed
 
     - name: 📂 Apply patch for AOSP variant
-      if: matrix.variant == 'AOSP'
+      if: matrix.variant == 'AOSP' || matrix.variant == 'AOSP-NSU'
       run: |
             git config --global user.name "GitHub Actions Bot"
             git config --global user.email "actions@github.com"
             git fetch --no-tags --depth=3 origin 280bb9a36fe4bfae196dbc97b1d7c21db48b69fb
             git cherry-pick 55a747bcbe6d2b26f0257cf1a7ab755a8b4cf90e
             git cherry-pick 280bb9a36fe4bfae196dbc97b1d7c21db48b69fb
+
+    - name: 📂 Apply patch for AOSP-NSU variant
+      if: matrix.variant == 'AOSP-NSU'
+      run: |
+            git config --global user.name "GitHub Actions Bot"
+            git config --global user.email "actions@github.com"
+            git fetch --no-tags --depth=2 origin 97f31daf7e37a15844f51c7eaf65716a837272e0
+            git revert --no-edit 97f31daf7e37a15844f51c7eaf65716a837272e0
 
     - name: ♻️ Set Build Filename Prefix
       run: |
@@ -83,19 +91,22 @@ jobs:
             elif [ "${{ matrix.variant }}" == "AOSP" ]; then
               echo "PREFIX=AOSP" >> $GITHUB_ENV
               echo "KERNEL_NAME=SUperRyzeNS [AOSP]" >> $GITHUB_ENV
+            elif [ "${{ matrix.variant }}" == "AOSP-NSU" ]; then
+              echo "PREFIX=AOSP-NSU" >> $GITHUB_ENV
+              echo "KERNEL_NAME=SUperRyzeNS [AOSP-NSU]" >> $GITHUB_ENV
             else
               echo "PREFIX=LEGACY" >> $GITHUB_ENV
               echo "KERNEL_NAME=SUperRyzeNS [LEGACY]" >> $GITHUB_ENV
             fi
 
     - name: 🖥️ MIUI Dimension
-      if: matrix.variant != 'AOSP'
+      if: matrix.variant == 'MIUI' || matrix.variant == 'LEGACY'
       run: |
             sed -i 's/qcom,mdss-pan-physical-width-dimension = <69>;$/qcom,mdss-pan-physical-width-dimension = <695>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
             sed -i 's/qcom,mdss-pan-physical-height-dimension = <154>;$/qcom,mdss-pan-physical-height-dimension = <1546>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
 
     - name: 🖥️ AOSP Dimension
-      if: matrix.variant == 'AOSP'
+      if: matrix.variant == 'AOSP' || matrix.variant == 'AOSP-NSU'
       run: |
             sed -i 's/qcom,mdss-pan-physical-width-dimension = <695>;$/qcom,mdss-pan-physical-width-dimension = <69>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
             sed -i 's/qcom,mdss-pan-physical-height-dimension = <1546>;$/qcom,mdss-pan-physical-height-dimension = <154>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
