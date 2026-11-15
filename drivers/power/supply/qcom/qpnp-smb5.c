@@ -2683,7 +2683,7 @@ static int smb5_dr_set_property(struct dual_role_phy_instance *dual_role,
 		if (chg->pr_swap_in_progress && !rc) {
 			cancel_delayed_work_sync(&chg->role_reversal_check);
 			vote(chg->awake_votable, DR_SWAP_VOTER, true, 0);
-			schedule_delayed_work(&chg->role_reversal_check,
+			queue_delayed_work(system_power_efficient_wq, &chg->role_reversal_check,
 				msecs_to_jiffies(ROLE_REVERSAL_DELAY_MS));
 		}
 		break;
@@ -4428,11 +4428,11 @@ static int smb5_probe(struct platform_device *pdev)
 	}
 
 	if (chg->reg_dump_enable) {
-		schedule_delayed_work(&chg->reg_work, 30 * HZ);
+		queue_delayed_work(system_power_efficient_wq, &chg->reg_work, 30 * HZ);
 	}
 
 	if (chg->early_status_report) {
-		schedule_delayed_work(&chg->status_report_work, msecs_to_jiffies(25000));
+		queue_delayed_work(system_power_efficient_wq, &chg->status_report_work, msecs_to_jiffies(25000));
 	}
 
 	if (chg->dcin_uusb_over_gpio_en && gpio_is_valid(chg->micro_usb_gpio))
