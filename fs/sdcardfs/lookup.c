@@ -234,9 +234,12 @@ static int sdcardfs_name_match(struct dir_context *ctx, const char *name,
 	struct qstr candidate = QSTR_INIT(name, namelen);
 
 	if (qstr_case_eq(buf->to_find, &candidate)) {
-		memcpy(buf->name, name, namelen);
-		buf->name[namelen] = 0;
 		buf->found = true;
+		buf->name = kmalloc(namelen + 1, GFP_KERNEL);
+		if (buf->name) {
+			memcpy(buf->name, name, namelen);
+			buf->name[namelen] = '\0';
+		}
 		return 1;
 	}
 	return 0;
@@ -284,33 +287,37 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 		struct sdcardfs_name_data buffer = {
 			.ctx.actor = sdcardfs_name_match,
 			.to_find = name,
-			.name = __getname(),
 			.found = false,
 		};
 
-		if (!buffer.name) {
-			err = -ENOMEM;
-			goto out;
-		}
 		file = dentry_open(lower_parent_path, O_RDONLY, cred);
 		if (IS_ERR(file)) {
 			err = PTR_ERR(file);
-			goto put_name;
+			goto err;
 		}
+
 		err = iterate_dir(file, &buffer.ctx);
 		fput(file);
-		if (err)
-			goto put_name;
 
-		if (buffer.found)
+		if (!err && buffer.found && buffer.name)
 			err = vfs_path_lookup(lower_dir_dentry,
 						lower_dir_mnt,
 						buffer.name, 0,
 						&lower_path);
-		else
+
+		/*
+		 * sdcardfs_name_match() allocated the name on a match; free it
+		 * on every path, including the lookup failure.
+		 */
+		kfree(buffer.name);
+
+		if (err)
+			goto err;
+
+		if (!buffer.found)
 			err = -ENOENT;
-put_name:
-		__putname(buffer.name);
+		else if (!buffer.name)
+			err = -ENOMEM;
 	}
 
 	/* no error: handle positive dentries */
@@ -359,6 +366,7 @@ found:
 	 * We don't consider ENOENT an error, and we want to return a
 	 * negative dentry.
 	 */
+err:
 	if (err && err != -ENOENT)
 		goto out;
 
