@@ -46,3 +46,11 @@
 - Always backup before flashing.
 - If bootloop change ROM.
 - **DWYOR!** (Do With Your Own Risk)
+
+---
+
+**Author:** [𝙎𝙡𝙞𝙥𝙯 𝙎𝙄𝙓](https://t.me/slipzsix)
+
+**Group:** [SR PG Support](https://t.me/superryzensplayground)
+
+[![Buy Me A Coffee](https://superryzens.sourceforge.net/assets/bmc.png)](https://sociabuzz.com/slipzsix/tribe)
