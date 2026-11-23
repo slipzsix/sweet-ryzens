@@ -49,8 +49,7 @@
 
 ---
 
-**Author:** [𝙎𝙡𝙞𝙥𝙯 𝙎𝙄𝙓](https://t.me/slipzsix)
-
+**Author:** [𝙎𝙡𝙞𝙥𝙯 𝙎𝙄𝙓](https://t.me/slipzsix)  
 **Group:** [SR PG Support](https://t.me/superryzensplayground)
 
-[![Buy Me A Coffee](https://superryzens.sourceforge.net/assets/bmc.png)](https://sociabuzz.com/slipzsix/tribe)
+[![Buy Me A Coffee](https://superryzens.sourceforge.net/assets/bmc-200.png)](https://sociabuzz.com/slipzsix/tribe)
