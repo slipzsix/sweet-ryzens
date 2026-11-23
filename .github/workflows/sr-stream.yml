@@ -1,6 +1,16 @@
 name: sr-stream
+
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Staging -> zips on SourceForge | Release -> changelog + zips on GitHub Releases"
+        type: choice
+        options:
+          - Staging
+          - Release
+        default: Staging
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -14,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
       with:
           fetch-depth: 1
-      
+
     - name: 💽 Free Disk Space
       run: |
             echo "Disk before cleanup:"
@@ -29,18 +39,18 @@ jobs:
             sudo apt-get clean
             echo "Disk after cleanup:"
             df -h /
-      
+
     - name: 🕚 Prepare timezone 
       run: |
             echo "BUILD_TIME=$(TZ=Asia/Jakarta date "+%d%m%Y-%H%M")" >> $GITHUB_ENV
             sudo rm /etc/localtime
             sudo ln -s /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
-        
+
     - name: ♻️ Install Dependencies
       run: |
             sudo apt update -y
             sudo apt install -y bc cpio flex bison git python-is-python3 tar aria2 perl wget curl lz4 libssl-dev libxml2
-        
+
     - name: ♻️ Cloning Toolchains 
       run: |
             set -e
@@ -57,7 +67,7 @@ jobs:
             echo "PATH=$(pwd)/clang/bin:$PATH" >> $GITHUB_ENV
             echo "GCC64_PATH=$(pwd)/gcc64" >> $GITHUB_ENV
             echo "GCC32_PATH=$(pwd)/gcc32" >> $GITHUB_ENV
-            
+
     - name: 📂 Apply patch for LEGACY variant
       if: matrix.variant == 'LEGACY'
       run: |
@@ -80,23 +90,19 @@ jobs:
       run: |
             git config --global user.name "GitHub Actions Bot"
             git config --global user.email "actions@github.com"
-            git fetch --no-tags --depth=2 origin 3e33e6ce5aad19bba147d7774983b95f0cf20df6
-            git revert --no-edit 3e33e6ce5aad19bba147d7774983b95f0cf20df6
+            git fetch --no-tags --depth=2 origin 5a5b8162dfac6e76f5c7a52ad6d7f796392459ad
+            git revert --no-edit 5a5b8162dfac6e76f5c7a52ad6d7f796392459ad
 
     - name: ♻️ Set Build Filename Prefix
       run: |
             if [ "${{ matrix.variant }}" == "MIUI" ]; then
               echo "PREFIX=MIUI" >> $GITHUB_ENV
-              echo "KERNEL_NAME=SUperRyzeNS [MIUI]" >> $GITHUB_ENV
             elif [ "${{ matrix.variant }}" == "AOSP" ]; then
               echo "PREFIX=AOSP" >> $GITHUB_ENV
-              echo "KERNEL_NAME=SUperRyzeNS [AOSP]" >> $GITHUB_ENV
             elif [ "${{ matrix.variant }}" == "AOSP-NSU" ]; then
               echo "PREFIX=AOSP-NSU" >> $GITHUB_ENV
-              echo "KERNEL_NAME=SUperRyzeNS [AOSP-NSU]" >> $GITHUB_ENV
             else
               echo "PREFIX=LEGACY" >> $GITHUB_ENV
-              echo "KERNEL_NAME=SUperRyzeNS [LEGACY]" >> $GITHUB_ENV
             fi
 
     - name: 🖥️ MIUI Dimension
@@ -110,11 +116,11 @@ jobs:
       run: |
             sed -i 's/qcom,mdss-pan-physical-width-dimension = <695>;$/qcom,mdss-pan-physical-width-dimension = <69>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
             sed -i 's/qcom,mdss-pan-physical-height-dimension = <1546>;$/qcom,mdss-pan-physical-height-dimension = <154>;/' arch/arm64/boot/dts/qcom/dsi-panel-k6-38-0c-0a-fhd-dsc-video.dtsi
-            
+
     - name: 🛡️Apply NoMount
       run: |
             curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s master
-    
+
     - name: ♻️ Build 🦊SUperRyzeNS
       timeout-minutes: 60
       run: |
@@ -130,7 +136,7 @@ jobs:
              CROSS_COMPILE=$GCC64_PATH/bin/aarch64-elf- \
              CROSS_COMPILE_ARM32=$GCC32_PATH/bin/arm-eabi-
            mv out/.config out/sweet_defconfig.txt
-           
+
     - name: 📩 Upload defconfig 
       uses: actions/upload-artifact@v4
       with:
@@ -152,29 +158,431 @@ jobs:
         name: SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}
         path: AnyKernel3/SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}.zip
 
-    - name: 💌 Sending to zeNS Telegram Bot
-      if: success()
-      timeout-minutes: 10
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+    - name: 🧭 Resolve channel
+      env:
+        INPUT_CHANNEL: ${{ github.event.inputs.channel }}
       run: |
+        set -euo pipefail
+        case "${INPUT_CHANNEL:-}" in
+          Release|release|SR-Release) CH='Release' ;;
+          Staging|staging|SR-Staging|'') CH='Staging' ;;
+          *) echo "Unknown channel '${INPUT_CHANNEL}', using Staging"
+             CH='Staging' ;;
+        esac
+        echo "CHANNEL=${CH}" >> "$GITHUB_ENV"
+        echo "Channel: ${CH}"
 
-        ZIP_NAME="SUperRyzeNS-${{ env.PREFIX }}-${{ env.BUILD_TIME }}.zip"
+    - name: 📄 Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
 
-        CAPTION="✅ <b>Kernel Build Success</b>
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        Device          : Redmi Note 10 Pro
-        Kernel           : ${{ env.KERNEL_NAME }}
-        Toolchain      : Neutron / Google Clang
-        Sender          : zeNS Bot
-        Build Time    : ${{ env.BUILD_TIME }}
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    - name: 📥 Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: SUperRyzeNS-*
+        path: dist
+        merge-multiple: true
 
-        curl -v -f \
-          --connect-timeout 30 \
-          --max-time 300 \
-          --retry 3 \
-          --retry-delay 5 \
-          -F document=@"AnyKernel3/$ZIP_NAME" \
-          -F chat_id="${{ secrets.TG_CHAT_ID }}" \
-          -F parse_mode=HTML \
-          -F caption="$CAPTION" \
-          https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument
+    - name: 🧾 Check build output
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        ZIPS=(dist/*.zip)
+        if [ ${#ZIPS[@]} -eq 0 ]; then
+          echo "No zip files found in dist/"
+          exit 1
+        fi
+        echo "Found ${#ZIPS[@]} zip(s):"
+        printf '  %s\n' "${ZIPS[@]##*/}"
+
+    - name: 🔑 Setup SourceForge SSH key
+      if: env.CHANNEL == 'Staging'
+      run: |
+        mkdir -p ~/.ssh
+        printf '%s\n' "${{ secrets.SF_SSH_KEY }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan frs.sourceforge.net >> ~/.ssh/known_hosts 2>/dev/null || true
+
+    - name: 🏷️ Reserve Staging folder
+      if: env.CHANNEL == 'Staging'
+      env:
+        SF_USERNAME: ${{ secrets.SF_USERNAME }}
+        SF_PROJECT: ${{ secrets.SF_PROJECT }}
+      run: |
+        set -uo pipefail
+        ROOT="/home/frs/project/${SF_PROJECT}"
+        SF_OPTS=(-q -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30)
+        SF_TARGET="${SF_USERNAME}@frs.sourceforge.net"
+        sftp_run() { sftp "${SF_OPTS[@]}" -b - "$SF_TARGET"; }
+
+        # Staging is stamped with the build time itself (Staging-23112026-1200),
+        # so every build gets its own folder without keeping a counter.
+        STAMP=''
+        SRC=$(ls dist/SUperRyzeNS-MIUI-*.zip 2>/dev/null | head -1 || true)
+        [ -n "$SRC" ] || SRC=$(ls dist/*.zip 2>/dev/null | head -1 || true)
+        if [ -n "$SRC" ]; then
+          STAMP=$(basename "$SRC" .zip | sed -nE 's/.*-([0-9]{8})-([0-9]{4})$/\1-\2/p')
+        fi
+        [ -n "$STAMP" ] || STAMP=$(TZ=Asia/Jakarta date '+%d%m%Y-%H%M')
+        echo "Staging build stamp: $STAMP"
+
+        # mkdir fails when the folder exists, so a second build in the same
+        # minute takes the next suffix instead of overwriting files.
+        TAG=""
+        for suffix in '' -2 -3 -4 -5; do
+          CAND="Staging-${STAMP}${suffix}"
+          if printf 'mkdir %s\n' "$ROOT/$CAND" | sftp_run >/dev/null 2>&1; then
+            TAG="$CAND"
+            break
+          fi
+        done
+        if [ -z "$TAG" ]; then
+          TAG="Staging-${STAMP}-$(TZ=Asia/Jakarta date '+%H%M%S')"
+          echo "WARNING: could not reserve a folder on SourceForge, falling back to $TAG"
+        fi
+
+        echo "Staging folder: $TAG"
+        echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+        echo "RELEASE_URL=https://sourceforge.net/projects/${SF_PROJECT}/files/${TAG}/" >> "$GITHUB_ENV"
+
+    - name: 🏷️ Reserve GitHub release tag
+      if: env.CHANNEL == 'Release'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        # The release channel counts up from the existing v2.<n> tags, so the
+        # next build is always one above the highest published release.
+        LAST=$(git ls-remote --tags origin 2>/dev/null \
+          | sed -nE 's#.*refs/tags/(v2\.[0-9]+)$#\1#p' \
+          | sed 's/^v2\.//' | sort -n | tail -1 || true)
+        START=$(( ${LAST:-0} + 1 ))
+        if [ -n "$LAST" ]; then
+          echo "Highest tag: v2.${LAST} -> next is v2.${START}"
+        else
+          echo "No v2.<n> tag yet -> starting at v2.${START}"
+        fi
+
+        TAG=""
+        for i in $(seq 0 10); do
+          CAND="v2.$((START + i))"
+          # Creating the tag through the API is atomic: it fails when the tag
+          # already exists, so two builds can never take the same number.
+          if gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+               -f ref="refs/tags/${CAND}" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+            TAG="$CAND"
+            break
+          fi
+          echo "Tag ${CAND} is already taken"
+        done
+        if [ -z "$TAG" ]; then
+          echo "Could not reserve a v2.<n> tag"
+          exit 1
+        fi
+        echo "Reserved tag: $TAG"
+
+        # Draft first: the banner, zips and notes are uploaded while the page
+        # is still private, then the release is published in one step.
+        gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+          -f tag_name="$TAG" \
+          -f target_commitish="$GITHUB_SHA" \
+          -f name="🦊𝗦𝗨𝗽𝗲𝗿𝗥𝘆𝘇𝗲𝗡𝗦™" \
+          -f body="Preparing ${TAG}…" \
+          -F draft=true >/dev/null
+
+        echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+        echo "RELEASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_ENV"
+
+    - name: 📝 Generate release notes
+      if: env.CHANNEL == 'Release'
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+
+        TEMPLATE=.github/release/RELEASE.md
+        if [ ! -f "$TEMPLATE" ]; then
+          echo "Missing $TEMPLATE"
+          exit 1
+        fi
+
+        # Change the hero picture by replacing .github/release/banner.* — it is
+        # uploaded as a release asset and embedded straight from that asset URL,
+        # so the page stays valid forever without user-attachment links.
+        BANNER=''
+        for f in .github/release/banner.*; do
+          BANNER="$f"
+          break
+        done
+        if [ -z "$BANNER" ]; then
+          echo "Missing .github/release/banner.*"
+          exit 1
+        fi
+        BANNER_NAME="$(basename "$BANNER")"
+        cp "$BANNER" "dist/${BANNER_NAME}"
+
+        BANNER_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${BANNER_NAME}"
+        sed -e "s|{{BANNER}}|${BANNER_URL}|g" \
+            -e "s|{{TAG}}|${RELEASE_TAG}|g" \
+            "$TEMPLATE" > dist/RELEASE.md
+
+        if grep -q '{{' dist/RELEASE.md; then
+          echo "Unfilled placeholder left in the release notes:"
+          grep -n '{{' dist/RELEASE.md || true
+          exit 1
+        fi
+        echo "--- release notes preview ---"
+        head -8 dist/RELEASE.md
+
+    - name: 📤 Upload zips to SourceForge
+      if: env.CHANNEL == 'Staging'
+      run: |
+        set -euo pipefail
+        SF_USER="${{ secrets.SF_USERNAME }}"
+        SF_PROJECT="${{ secrets.SF_PROJECT }}"
+        REMOTE="/home/frs/project/${SF_PROJECT}/${RELEASE_TAG}"
+
+        shopt -s nullglob
+        ZIPS=(dist/*.zip)
+        if [ ${#ZIPS[@]} -eq 0 ]; then
+          echo "No zip files found in dist/"
+          exit 1
+        fi
+
+        # Staging publishes the flashable zips only: no README, no banner.
+        # SourceForge FRS only allows sftp/scp (restricted shell), so no ssh/rsync.
+        {
+          echo "-mkdir ${REMOTE}"
+          for zip in "${ZIPS[@]}"; do
+            echo "put ${zip} ${REMOTE}/$(basename "$zip")"
+          done
+          echo "ls -la ${REMOTE}"
+        } > "$RUNNER_TEMP/sftp-batch.txt"
+
+        sftp -b "$RUNNER_TEMP/sftp-batch.txt" \
+          -i ~/.ssh/id_ed25519 \
+          -o StrictHostKeyChecking=no \
+          -o BatchMode=yes \
+          -o ConnectTimeout=30 \
+          "${SF_USER}@frs.sourceforge.net"
+
+    - name: 📤 Upload assets to GitHub release
+      if: env.CHANNEL == 'Release'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        ZIPS=(dist/*.zip)
+        if [ ${#ZIPS[@]} -eq 0 ]; then
+          echo "No zip files found in dist/"
+          exit 1
+        fi
+        gh release upload "$RELEASE_TAG" \
+          --repo "$GITHUB_REPOSITORY" \
+          --clobber \
+          "${ZIPS[@]}" dist/banner.*
+        echo "Assets on the draft:"
+        gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+          --json assets --jq '.assets[].name'
+
+    - name: 🚀 Publish GitHub release
+      if: env.CHANNEL == 'Release'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        gh release edit "$RELEASE_TAG" \
+          --repo "$GITHUB_REPOSITORY" \
+          --notes-file dist/RELEASE.md \
+          --draft=false \
+          --latest
+        echo "Published: $RELEASE_URL"
+
+    - name: ⏳ Wait for SourceForge to publish
+      if: env.CHANNEL == 'Staging'
+      run: |
+        set -euo pipefail
+        SF_PROJECT="${{ secrets.SF_PROJECT }}"
+        shopt -s nullglob
+        ZIPS=(dist/*.zip)
+        for attempt in $(seq 1 6); do
+          READY=1
+          for zip in "${ZIPS[@]}"; do
+            URL="https://sourceforge.net/projects/${SF_PROJECT}/files/${RELEASE_TAG}/$(basename "$zip")/download"
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -A 'Mozilla/5.0' --max-time 20 "$URL" || echo 000)
+            case "$CODE" in
+              200|301|302) ;;
+              *) READY=0 ;;
+            esac
+          done
+          if [ "$READY" -eq 1 ]; then
+            echo "All files are live on SourceForge"
+            break
+          fi
+          echo "SourceForge not ready yet (attempt ${attempt}/6)"
+          sleep 15
+        done
+
+    - name: ⏳ Verify GitHub release
+      if: env.CHANNEL == 'Release'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        EXPECTED=$(( $(ls -1 dist/*.zip | wc -l) + 1 ))
+        for attempt in $(seq 1 12); do
+          INFO=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,assets 2>/dev/null || echo '{}')
+          DRAFT=$(printf '%s' "$INFO" | jq -r 'if .isDraft == null then "unknown" elif .isDraft then "true" else "false" end')
+          HAVE=$(printf '%s' "$INFO" | jq -r '.assets // [] | length')
+          if [ "$DRAFT" = "false" ] && [ "${HAVE:-0}" -ge "$EXPECTED" ] \
+             && curl -sf -o /dev/null -A 'Mozilla/5.0' --max-time 20 "$RELEASE_URL"; then
+            echo "Release is live with ${HAVE}/${EXPECTED} assets"
+            exit 0
+          fi
+          echo "Release not ready yet (attempt ${attempt}/12, draft=${DRAFT}, assets=${HAVE:-0}/${EXPECTED})"
+          sleep 10
+        done
+        echo "WARNING: release did not verify in time, check $RELEASE_URL"
+
+    - name: 💌 Send Telegram release
+      env:
+        TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      run: |
+        set -uo pipefail
+        esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+        nb() { sed 's/^\([^ ]*\) /\1\&nbsp;/'; }
+        zw() { sed 's/\([-_]\)/\1\xe2\x80\x8b/g'; }
+        row() { printf '<tr><th align="left">%s</th><td>%s</td></tr>' "$(nb <<< "$1")" "$(esc <<< "$2" | nb | zw)"; }
+        btn() {
+          local u
+          u="$(esc <<< "$2" | sed 's/"/\&quot;/g')"
+          printf '<tg-button-row><tg-button type="url" url="%s" style="success">%s</tg-button></tg-button-row>' "$u" "$1"
+        }
+
+        ROWS=''
+        BUTTONS=''
+        LINES=''
+        KB='[]'
+        FOUND=0
+        BUILD_TIME=''
+        for variant in MIUI LEGACY AOSP AOSP-NSU; do
+          if [ "$variant" = "AOSP" ]; then
+            FILE=$(find dist -maxdepth 1 -type f -name 'SUperRyzeNS-AOSP-*.zip' ! -name '*-AOSP-NSU-*' | head -1)
+          else
+            FILE=$(find dist -maxdepth 1 -type f -name "SUperRyzeNS-${variant}-*.zip" | head -1)
+          fi
+          [ -n "$FILE" ] || continue
+          BASE=$(basename "$FILE" .zip)
+          NAME=$(printf '%s' "$BASE" | sed -E 's/-[0-9]{8}-[0-9]{4}$//')
+          if [ -z "$BUILD_TIME" ]; then
+            STAMP=$(printf '%s' "$BASE" | sed -nE 's/.*-([0-9]{8})-([0-9]{4})$/\1 \2/p')
+            if [ -n "$STAMP" ]; then
+              D=${STAMP% *}
+              T=${STAMP#* }
+              BUILD_TIME="${D:0:2}-${D:2:2}-${D:4:4} ${T:0:2}:${T:2:2} WIB"
+            fi
+          fi
+          FOUND=$((FOUND+1))
+          ROWS+="$(row "♻️ ${variant}" "📁 ${NAME}")"
+          LINES+="♻️ ${variant} — 📁 ${NAME}"$'\n'
+        done
+        if [ "$FOUND" -eq 0 ]; then
+          echo "No zip files to announce"
+          exit 1
+        fi
+        ROWS+="$(row "🟢 Build Status" "✅ All variants built cleanly.")"
+        [ -n "$BUILD_TIME" ] || BUILD_TIME='unknown'
+
+        BUTTONS="$(btn "DOWNLOAD" "$RELEASE_URL")"
+
+        MGR=''
+        MGR+='<tg-button-row>'
+        MGR+='<tg-button type="url" style="success" url="https://t.me/KernelSU_group/3234/500579">KernelSU</tg-button>'
+        MGR+='<tg-button type="url" style="success" url="https://t.me/ksunext_ci/15240">KernelSU-Next</tg-button>'
+        MGR+='</tg-button-row>'
+        MGR+='<tg-button-row>'
+        MGR+='<tg-button type="url" style="success" url="https://t.me/BakaSU_Grp/4/346348?single">BakaSU</tg-button>'
+        MGR+='<tg-button type="url" style="success" url="https://t.me/FinaSU/84">FinaSU</tg-button>'
+        MGR+='</tg-button-row>'
+
+        KB=$(jq -c \
+          --arg t "DOWNLOAD" --arg u "$RELEASE_URL" \
+          --arg ksu "https://t.me/KernelSU_group/3234/500579" \
+          --arg ksun "https://t.me/ksunext_ci/15240" \
+          --arg fina "https://t.me/FinaSU/84" \
+          --arg baka "https://t.me/BakaSU_Grp/4/346348?single" \
+          '[[{"text":$t,"url":$u}],
+            [{"text":"KernelSU","url":$ksu},{"text":"KernelSU-Next","url":$ksun}],
+            [{"text":"BakaSU","url":$baka},{"text":"FinaSU","url":$fina}]]')
+
+        HTML="<tg-button-row><tg-button type=\"callback_data\" style=\"success\" data=\"noop\">🦊SUperRyzeNS™</tg-button></tg-button-row>"
+        HTML+="<table bordered>${ROWS}</table>"
+        HTML+="<table bordered>"
+        HTML+="$(row "Release tag" "$RELEASE_TAG")"
+        HTML+="$(row "Build time" "$BUILD_TIME")"
+        HTML+="$(row "Device" "Redmi Note 10 Pro")"
+        HTML+="</table>"
+        HTML+="$BUTTONS"
+        HTML+="$MGR"
+
+        RICH=$(jq -nc --arg h "$HTML" '{html:$h, skip_entity_detection:true}')
+        RESP=$(curl -sS --connect-timeout 30 --max-time 60 -X POST \
+          "https://api.telegram.org/bot${TG_TOKEN}/sendRichMessage" \
+          --data-urlencode "chat_id=${TG_CHAT_ID}" \
+          --data-urlencode "rich_message=${RICH}" \
+          -w $'\n%{http_code}')
+        CODE=$(printf '%s' "$RESP" | tail -n1)
+        BODY=$(printf '%s' "$RESP" | sed '$d')
+        echo "sendRichMessage HTTP ${CODE}"
+        printf '%s\n' "$BODY" | head -c 1200
+
+        if [ "$CODE" != "200" ]; then
+          echo "Rich message failed, falling back to plain text"
+          TEXT=$'🦊 SUperRyzeNS™\n'
+          TEXT+="$LINES"
+          TEXT+=$'🟢 Build Status ✅ All variants built cleanly.\n'
+          TEXT+="🔗 ${RELEASE_URL}"$'\n'
+          TEXT+=$'Manager: <a href="https://t.me/KernelSU_group/3234/500579">KernelSU</a> <a href="https://t.me/ksunext_ci/15240">KernelSU-Next</a> / <a href="https://t.me/BakaSU_Grp/4/346348?single">BakaSU</a> <a href="https://t.me/FinaSU/84">FinaSU</a>'
+          PAYLOAD=$(jq -n --arg chat "$TG_CHAT_ID" --arg text "$TEXT" --argjson kb "$KB" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true, reply_markup:{inline_keyboard:$kb}}')
+          curl -sS --connect-timeout 30 --max-time 60 -H "Content-Type: application/json" -d "$PAYLOAD" "https://api.telegram.org/bot${TG_TOKEN}/sendMessage"
+        fi
+
+  failure:
+    needs: [build, release]
+    if: failure()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - name: 💌 Send Telegram build failure notice
+      env:
+        TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if ! JOBS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" 2>/dev/null); then
+          JOBS='{"jobs":[]}'
+        fi
+        FAILED=$(jq -r '[.jobs[]? | select(.conclusion == "failure") | .name] | join(", ")' <<<"$JOBS")
+        if [ -z "$FAILED" ]; then
+          FAILED="unknown"
+        fi
+        TEXT=$'⚠️ <b>SUperRyzeNS</b> — Build Failed\n'
+        TEXT+=$'━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+        TEXT+="❌ Failed : ${FAILED}"$'\n'
+        TEXT+="🔢 Run    : #${{ github.run_number }}"$'\n'
+        TEXT+="🕒 Time   : $(TZ=Asia/Jakarta date '+%d-%m-%Y %H:%M WIB')"$'\n'
+        TEXT+="🔗 Detail : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"$'\n'
+        TEXT+=$'━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+        PAYLOAD=$(jq -n --arg chat "$TG_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')
+        curl -sS --fail --connect-timeout 30 --max-time 60 -H "Content-Type: application/json" -d "$PAYLOAD" "https://api.telegram.org/bot${TG_TOKEN}/sendMessage"
